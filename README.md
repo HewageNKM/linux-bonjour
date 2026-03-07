@@ -10,7 +10,8 @@
 - **Native Management Console**: A premium **PySide6 (Qt)** desktop app for configuration and identity management.
 - **Live AI Feedback**: Real-time camera feed with face detection bounding boxes and "ready-to-save" status.
 - **Universal Hardware Support**: Native **IR Camera** support with automatic fallback to **RGB cameras**.
-- **Real-time Configuration**: "Apply" and "Reset" controls with **Hot-Reloading** support—changes take effect instantly without restarting services.
+- **Hot-Reloading Support**: Changes take effect instantly across the system.
+- **Zero-Setup Deployment**: One command to enable/disable security for Login, Sudo, and Lock Screen.
 - **Face CRUD**: Full Create, Read, and Delete operations for user face profiles.
 
 ---
@@ -49,11 +50,15 @@ Find **"Linux Hello Management"** in your application menu, or run:
 ```
 Use the **"Dashboard"** to monitor status and the **"New Enrollment"** section to capture your identity with live AI feedback.
 
-### 2. Configure PAM (Final Step)
-To enable face-recognition for your system, add this line to the **top** of `/etc/pam.d/common-auth`:
-```text
-auth sufficient pam_hello.so
+### 2. Enable System-wide Face Unlock (Zero-Setup)
+
+To enable face-recognition for your **Login, Sudo, and Lock Screen**, run:
+
+```bash
+sudo ./scripts/setup_pam.sh --enable-all
 ```
+
+Check configuration status anytime: `sudo ./scripts/setup_pam.sh --status`.
 
 ### 3. CLI Alternative
 You can still use the traditional CLI for enrollment if preferred:

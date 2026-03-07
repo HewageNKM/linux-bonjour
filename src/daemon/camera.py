@@ -42,6 +42,9 @@ class Camera:
         ret, frame = cap.read()
         cap.release()
         return frame if ret else None
+    def release(self):
+        # Already managed internally in get_frame but provided for compatibility
+        pass
 
 # Maintain alias for compatibility
 IRCamera = Camera
