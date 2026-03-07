@@ -338,6 +338,16 @@ class LinuxHelloGUI(QMainWindow):
         if current_bool == self.last_known_pam_state:
             return
 
+        # Safety Guard: Check for face data before enabling
+        if current_bool:
+            users_dir = os.path.join(PROJECT_ROOT, self.config.get("users_dir", "config/users"))
+            if not os.path.exists(users_dir) or not any(f.endswith(".npy") for f in os.listdir(users_dir)):
+                QMessageBox.critical(self, "No Face Data", "Cannot enable face unlock without any enrolled identities.\nPlease enroll at least one face profile first.")
+                self.pam_toggle.blockSignals(True)
+                self.pam_toggle.setChecked(False)
+                self.pam_toggle.blockSignals(False)
+                return
+
         self.pam_updating = True
         command = "--enable-all" if current_bool else "--disable-all"
         try:
@@ -377,6 +387,7 @@ class LinuxHelloGUI(QMainWindow):
         self.config["camera_index"] = None if idx == -1 else idx
         self.config["camera_type"] = self.cam_type_combo.currentText()
         self.save_config()
+        self.statusBar().showMessage("Settings applied successfully! ✨", 3000)
         
     def refresh_users(self):
         self.user_list.clear()
@@ -439,12 +450,40 @@ class LinuxHelloGUI(QMainWindow):
 
     def save_identity(self):
         username = self.u_input.text().strip()
-        if username and self.current_face_embedding is not None:
-            path = os.path.join(PROJECT_ROOT, self.config.get("users_dir", "config/users"), f"{username}.npy")
+        if not username:
+            QMessageBox.warning(self, "Validation Error", "Please enter a username.")
+            return
+
+        # Sanitize username (alphanumeric, underscores, hyphens)
+        import re
+        if not re.match(r"^[a-zA-Z0-9_-]+$", username):
+            QMessageBox.warning(self, "Validation Error", "Username contains illegal characters.\nOnly alphanumeric, underscores, and hyphens are allowed.")
+            return
+
+        if self.current_face_embedding is None:
+            QMessageBox.warning(self, "No Face Detected", "Please start the live capture and look at the camera first.")
+            return
+
+        users_dir = os.path.join(PROJECT_ROOT, self.config.get("users_dir", "config/users"))
+        path = os.path.join(users_dir, f"{username}.npy")
+
+        # Overwrite Protection
+        if os.path.exists(path):
+            reply = QMessageBox.question(self, "Overwrite Identity", 
+                                       f"An identity named '{username}' already exists. Overwrite it?",
+                                       QMessageBox.Yes | QMessageBox.No)
+            if reply == QMessageBox.No:
+                return
+
+        try:
+            os.makedirs(users_dir, exist_ok=True)
             np.save(path, self.current_face_embedding)
             self.refresh_users()
             self.stop_video()
             self.u_input.clear()
+            self.statusBar().showMessage(f"Identity '{username}' saved successfully! ✅", 3000)
+        except Exception as e:
+            QMessageBox.critical(self, "Save Error", f"Could not save identity: {e}")
 
     def closeEvent(self, event):
         if self.video_thread: self.video_thread.stop()
