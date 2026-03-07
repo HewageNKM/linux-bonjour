@@ -92,8 +92,17 @@ class FaceDaemon:
                 request = conn.recv(1024).decode().strip()
                 if request.startswith("AUTH "):
                     username = request.split(" ", 1)[1]
+                    
                     # Reload config on each auth attempt for live changes
-                    self.config = load_config()
+                    new_config = load_config()
+                    
+                    # Hot-reload model if it changed in config
+                    if new_config.get('model_name') != self.config.get('model_name'):
+                        print(f"Model change detected: {new_config['model_name']}. Hot-reloading...")
+                        self.app = FaceAnalysis(name=new_config['model_name'], providers=['CPUExecutionProvider'])
+                        self.app.prepare(ctx_id=0, det_size=(320, 320))
+                    
+                    self.config = new_config
                     result = "SUCCESS" if self.verify(username) else "FAILURE"
                     conn.sendall(result.encode())
             except Exception as e:

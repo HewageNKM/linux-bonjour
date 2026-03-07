@@ -1,10 +1,10 @@
 {
     "socket_path": "/run/linux-hello.sock",
     "model_name": "buffalo_l",
-    "threshold": 0.45,
+    "threshold": 0.7,
     "users_dir": "config/users",
     "cooldown_time": 60,
-    "max_failures": 5,
+    "max_failures": 1,
     "camera_index": null,
     "camera_type": "AUTO"
 }
