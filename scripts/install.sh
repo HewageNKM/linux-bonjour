@@ -35,12 +35,15 @@ sudo cp "$PROJECT_DIR/src/pam_rs/target/release/libpam_hello.so" /lib/security/p
 echo "Initializing models..."
 "$PROJECT_DIR/venv/bin/python" "$PROJECT_DIR/scripts/init_models.py"
 
-# 6. Setup Systemd Service
-echo "Configuring systemd service..."
+# 6. Configure Systemd Services
+echo "Configuring systemd services..."
 sudo cp "$PROJECT_DIR/config/linux-hello.service" /etc/systemd/system/
+sudo cp "$PROJECT_DIR/config/linux-hello-ui.service" /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable "$SERVICE_NAME"
-sudo systemctl start "$SERVICE_NAME"
+sudo systemctl enable linux-hello
+sudo systemctl start linux-hello
+sudo systemctl enable linux-hello-ui
+sudo systemctl start linux-hello-ui
 
 echo "Installation complete!"
 echo "To finish setup, run: ./venv/bin/python src/cli/enroll.py"

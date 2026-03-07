@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Linux Hello | Management Console</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&family=Outfit:wght@300;600;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="background-overlay"></div>
+    
+    <main class="glass-container">
+        <header>
+            <div class="logo-area">
+                <img src="logo.png" alt="Linux Hello Logo" class="logo">
+                <h1>Linux Hello</h1>
+            </div>
+            <div class="status-badge" id="daemon-status">
+                <span class="pulse"></span> System Active
+            </div>
+        </header>
+
+        <section class="dashboard">
+            <div class="card spec-card">
+                <h3>System Specs</h3>
+                <div id="specs-content" class="loading">Detecting hardware...</div>
+            </div>
+            
+            <div class="card model-card">
+                <h3>Active Intelligence</h3>
+                <div class="model-info">
+                    <span id="current-model-name" class="highlight">-</span>
+                    <p id="model-suggestion" class="subtext"></p>
+                </div>
+                <div class="model-choices">
+                    <button class="btn switch-btn" onclick="switchModel('buffalo_s')">Switch to Buffalo S (Light)</button>
+                    <button class="btn switch-btn primary" onclick="switchModel('buffalo_l')">Switch to Buffalo L (Precision)</button>
+                </div>
+            </div>
+        </section>
+
+        <section class="settings">
+            <h2>Configuration</h2>
+            <div class="settings-grid">
+                <div class="input-group">
+                    <label>Sensitivity (Threshold)</label>
+                    <input type="range" min="0" max="100" value="45" class="slider" id="threshold-slider">
+                    <span id="threshold-val">0.45</span>
+                </div>
+                
+                <div class="input-group">
+                    <label>Security Cooldown (Seconds)</label>
+                    <input type="number" id="cooldown-val" class="text-input">
+                </div>
+
+                <div class="input-group">
+                    <label>Max Failed Attempts</label>
+                    <input type="number" id="failures-val" class="text-input">
+                </div>
+            </div>
+            <button class="btn save-btn" onclick="saveSettings()">Apply Changes</button>
+        </section>
+
+        <section class="users">
+            <h2>Enrolled Users</h2>
+            <div id="user-list" class="user-grid">
+                <!-- User items will be injected here -->
+            </div>
+        </section>
+    </main>
+
+    <div id="notification" class="notification">Settings Saved!</div>
+
+    <script src="script.js"></script>
+</body>
+</html>

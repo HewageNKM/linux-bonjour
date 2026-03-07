@@ -1,0 +1,14 @@
+[Unit]
+Description=Linux Hello Management UI
+After=network.target
+
+[Service]
+ExecStart=/home/kawishika/Documents/Projects/linux-hello/venv/bin/python3 src/daemon/ui_server.py
+WorkingDirectory=/home/kawishika/Documents/Projects/linux-hello
+StandardOutput=inherit
+StandardError=inherit
+Restart=always
+User=kawishika
+
+[Install]
+WantedBy=multi-user.target
