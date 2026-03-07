@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QLabel, QSlider, QSpinBox, QPushButton, 
                              QGroupBox, QLineEdit, QListWidget, QProgressBar,
                              QListWidgetItem, QMessageBox, QFrame, QComboBox,
-                             QScrollArea)
+                             QScrollArea, QCheckBox)
 from PySide6.QtCore import Qt, QTimer, Slot, QThread, Signal, QSize
 from PySide6.QtGui import QFont, QPalette, QColor, QImage, QPixmap
 
@@ -23,6 +23,7 @@ from insightface.app import FaceAnalysis
 
 class StatusWorker(QThread):
     status_signal = Signal(bool)
+    pam_status_signal = Signal(bool)
 
     def __init__(self):
         super().__init__()
@@ -31,12 +32,21 @@ class StatusWorker(QThread):
     def run(self):
         while self._run_flag:
             try:
+                # Daemon status
                 res = subprocess.run(["systemctl", "is-active", "linux-hello"], 
                                    capture_output=True, text=True, timeout=2)
                 active = res.stdout.strip() == "active"
                 self.status_signal.emit(active)
+                
+                # PAM status (No sudo needed for status)
+                pam_res = subprocess.run([os.path.join(PROJECT_ROOT, "scripts", "setup_pam.sh"), "--status"], 
+                                       capture_output=True, text=True, timeout=2)
+                # Detection: Look for ENABLED in common-auth
+                pam_enabled = "[ENABLED]  common-auth" in pam_res.stdout
+                self.pam_status_signal.emit(pam_enabled)
             except:
                 self.status_signal.emit(False)
+                self.pam_status_signal.emit(False)
             self.msleep(3000) # Check every 3s
 
     def stop(self):
@@ -96,13 +106,15 @@ class LinuxHelloGUI(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Linux Hello")
-        self.setMinimumSize(900, 700)
+        self.setMinimumSize(1000, 750)
         self.config_path = os.path.join(PROJECT_ROOT, "config", "config.json")
         self.load_config()
         
         self.video_thread = None
         self.status_thread = None
         self.current_face_embedding = None
+        self.pam_updating = False
+        self.last_known_pam_state = None # To prevent loops
         
         self.setup_ui()
         self.start_status_monitoring()
@@ -118,7 +130,9 @@ class LinuxHelloGUI(QMainWindow):
                 "cooldown_time": 60,
                 "max_failures": 5,
                 "model_name": "buffalo_s",
-                "users_dir": "config/users"
+                "users_dir": "config/users",
+                "camera_index": None,
+                "camera_type": "AUTO"
             }
 
     def save_config(self):
@@ -154,18 +168,28 @@ class LinuxHelloGUI(QMainWindow):
         left_scroll = QScrollArea()
         left_scroll.setWidgetResizable(True)
         left_scroll.setFrameShape(QFrame.NoFrame)
+        left_scroll.setStyleSheet("background: transparent;")
         
         settings_container = QWidget()
         settings_layout = QVBoxLayout(settings_container)
         settings_layout.setContentsMargins(0, 0, 10, 0)
+        settings_layout.setSpacing(15)
         
-        # Config Group
+        # 1. System Integration Group
+        system_group = QGroupBox("System Integration")
+        system_layout = QVBoxLayout()
+        self.pam_toggle = QCheckBox("Enable Face Unlock (System-wide)")
+        self.pam_toggle.setStyleSheet("font-weight: bold; padding: 5px;")
+        self.pam_toggle.stateChanged.connect(self.on_pam_toggle_changed)
+        system_layout.addWidget(self.pam_toggle)
+        system_layout.addWidget(QLabel("<i>Active security for Login, Sudo, and Lock Screen.</i>"))
+        system_group.setLayout(system_layout)
+        settings_layout.addWidget(system_group)
+
+        # 2. Security Settings Group
         config_group = QGroupBox("Security Settings")
         config_layout = QVBoxLayout()
-        
-        # Threshold
         config_layout.addWidget(QLabel("<b>Match Threshold</b>"))
-        config_layout.addWidget(QLabel("<i>How strictly the AI matches your face.</i>"))
         t_layout = QHBoxLayout()
         self.t_slider = QSlider(Qt.Horizontal)
         self.t_slider.setRange(0, 100)
@@ -176,52 +200,69 @@ class LinuxHelloGUI(QMainWindow):
         t_layout.addWidget(self.t_label)
         config_layout.addLayout(t_layout)
         
-        # Model Selection
         config_layout.addWidget(QLabel("<b>AI Model</b>"))
-        config_layout.addWidget(QLabel("<i>Bufflo S (Lite) vs Bufflo L (Precision).</i>"))
         self.m_combo = QComboBox()
         self.m_combo.addItems(["buffalo_s", "buffalo_l"])
         self.m_combo.setCurrentText(self.config.get("model_name", "buffalo_s"))
         config_layout.addWidget(self.m_combo)
         
-        # Cooldown
-        config_layout.addWidget(QLabel("<b>Security Cooldown (sec)</b>"))
-        config_layout.addWidget(QLabel("<i>Lockout duration after failures.</i>"))
+        sub_layout = QHBoxLayout()
+        c_vbox = QVBoxLayout()
+        c_vbox.addWidget(QLabel("<b>Cooldown (s)</b>"))
         self.c_spin = QSpinBox()
         self.c_spin.setRange(0, 3600)
         self.c_spin.setValue(self.config.get("cooldown_time", 60))
-        config_layout.addWidget(self.c_spin)
-        
-        # Max Failures
-        config_layout.addWidget(QLabel("<b>Max Failures</b>"))
-        config_layout.addWidget(QLabel("<i>Attempts allowed before lockout.</i>"))
+        c_vbox.addWidget(self.c_spin)
+        sub_layout.addLayout(c_vbox)
+        f_vbox = QVBoxLayout()
+        f_vbox.addWidget(QLabel("<b>Max Failures</b>"))
         self.f_spin = QSpinBox()
         self.f_spin.setRange(1, 20)
         self.f_spin.setValue(self.config.get("max_failures", 5))
-        config_layout.addWidget(self.f_spin)
-        
-        # Apply/Reset Buttons
-        btn_layout = QHBoxLayout()
-        self.apply_btn = QPushButton("Apply Settings")
-        self.apply_btn.clicked.connect(self.apply_settings)
-        self.apply_btn.setStyleSheet("background-color: #4CAF50; color: white; padding: 10px; font-weight: bold;")
-        self.reset_btn = QPushButton("Reset")
-        self.reset_btn.clicked.connect(self.reset_settings)
-        self.reset_btn.setStyleSheet("background-color: #616161; color: white; padding: 10px;")
-        btn_layout.addWidget(self.reset_btn)
-        btn_layout.addWidget(self.apply_btn)
-        config_layout.addLayout(btn_layout)
-        
+        f_vbox.addWidget(self.f_spin)
+        sub_layout.addLayout(f_vbox)
+        config_layout.addLayout(sub_layout)
         config_group.setLayout(config_layout)
         settings_layout.addWidget(config_group)
         
-        # User List CRUD
-        user_group = QGroupBox("Managed Identities (CRUD)")
+        # 3. Hardware Settings
+        hw_group = QGroupBox("Hardware Settings")
+        hw_layout = QVBoxLayout()
+        hw_layout.addWidget(QLabel("<b>Camera Selection</b>"))
+        self.cam_type_combo = QComboBox()
+        self.cam_type_combo.addItems(["AUTO", "IR", "RGB"])
+        self.cam_type_combo.setCurrentText(self.config.get("camera_type", "AUTO"))
+        hw_layout.addWidget(self.cam_type_combo)
+        cam_idx_layout = QHBoxLayout()
+        cam_idx_layout.addWidget(QLabel("Index (-1=Auto)"))
+        self.cam_idx_spin = QSpinBox()
+        self.cam_idx_spin.setRange(-1, 10)
+        idx = self.config.get("camera_index")
+        self.cam_idx_spin.setValue(-1 if idx is None else idx)
+        cam_idx_layout.addWidget(self.cam_idx_spin)
+        hw_layout.addLayout(cam_idx_layout)
+        hw_group.setLayout(hw_layout)
+        settings_layout.addWidget(hw_group)
+
+        # 4. Buttons
+        btn_layout = QHBoxLayout()
+        self.apply_btn = QPushButton("Apply Settings")
+        self.apply_btn.clicked.connect(self.apply_settings)
+        self.apply_btn.setStyleSheet("background-color: #4CAF50; color: white; padding: 12px; font-weight: bold;")
+        self.reset_btn = QPushButton("Reset")
+        self.reset_btn.clicked.connect(self.reset_settings)
+        self.reset_btn.setStyleSheet("background-color: #616161; color: white; padding: 12px;")
+        btn_layout.addWidget(self.reset_btn)
+        btn_layout.addWidget(self.apply_btn)
+        settings_layout.addLayout(btn_layout)
+        
+        # 5. Users
+        user_group = QGroupBox("Managed Identities")
         user_layout = QVBoxLayout()
         self.user_list = QListWidget()
         self.refresh_users()
         user_layout.addWidget(self.user_list)
-        del_btn = QPushButton("Delete Selected User")
+        del_btn = QPushButton("Delete Identity")
         del_btn.clicked.connect(self.delete_user)
         del_btn.setStyleSheet("background-color: #f44336; color: white; padding: 8px;")
         user_layout.addWidget(del_btn)
@@ -236,18 +277,16 @@ class LinuxHelloGUI(QMainWindow):
         right_layout = QVBoxLayout(right_panel)
         right_layout.setContentsMargins(0, 0, 0, 0)
         
-        # Camera Feed
         feed_group = QGroupBox("Live Security Feed")
         feed_layout = QVBoxLayout()
         self.image_label = QLabel("Camera Inactive")
         self.image_label.setAlignment(Qt.AlignCenter)
-        self.image_label.setMinimumSize(400, 300)
-        self.image_label.setStyleSheet("background-color: black; border: 2px solid #555;")
+        self.image_label.setMinimumSize(450, 350)
+        self.image_label.setStyleSheet("background-color: #000; border: 2px solid #333; border-radius: 10px;")
         feed_layout.addWidget(self.image_label)
         feed_group.setLayout(feed_layout)
         right_layout.addWidget(feed_group)
         
-        # Enrollment
         enroll_group = QGroupBox("New Enrollment")
         enroll_layout = QVBoxLayout()
         self.u_input = QLineEdit()
@@ -259,24 +298,22 @@ class LinuxHelloGUI(QMainWindow):
         self.save_enroll_btn = QPushButton("Save Identity")
         self.save_enroll_btn.setEnabled(False)
         self.save_enroll_btn.clicked.connect(self.save_identity)
-        self.save_enroll_btn.setStyleSheet("background-color: #2196F3; color: white; padding: 10px;")
+        self.save_enroll_btn.setStyleSheet("background-color: #2196F3; color: white; padding: 12px; font-weight: bold;")
         enroll_layout.addWidget(self.save_enroll_btn)
         self.enroll_status = QLabel("Standby")
         self.enroll_status.setAlignment(Qt.AlignCenter)
         enroll_layout.addWidget(self.enroll_status)
-        
         enroll_group.setLayout(enroll_layout)
         right_layout.addWidget(enroll_group)
         
-        # Assemble
         main_layout.addWidget(left_side, 1)
         main_layout.addWidget(right_panel, 1)
-        
         self.setCentralWidget(main_content)
 
     def start_status_monitoring(self):
         self.status_thread = StatusWorker()
         self.status_thread.status_signal.connect(self.update_status_label)
+        self.status_thread.pam_status_signal.connect(self.update_pam_toggle)
         self.status_thread.start()
 
     @Slot(bool)
@@ -285,23 +322,59 @@ class LinuxHelloGUI(QMainWindow):
         color = "#4CAF50" if active else "#f44336"
         self.status_label.setStyleSheet(f"color: {color}; font-weight: bold;")
 
+    @Slot(bool)
+    def update_pam_toggle(self, enabled):
+        # Only update if we are not currently processsing a user click
+        # AND if the state has actually changed from what we last confirmed
+        if not self.pam_updating and enabled != self.last_known_pam_state:
+            self.last_known_pam_state = enabled # Store first
+            self.pam_toggle.blockSignals(True)
+            self.pam_toggle.setChecked(enabled)
+            self.pam_toggle.blockSignals(False)
+
+    def on_pam_toggle_changed(self, state):
+        current_bool = (state == 2)
+        # Prevent loop: If this trigger matches what we last confirmed, do nothing
+        if current_bool == self.last_known_pam_state:
+            return
+
+        self.pam_updating = True
+        command = "--enable-all" if current_bool else "--disable-all"
+        try:
+            # We must use sudo here for mutation
+            subprocess.run(["sudo", os.path.join(PROJECT_ROOT, "scripts", "setup_pam.sh"), command], check=True)
+            self.last_known_pam_state = current_bool
+            self.statusBar().showMessage(f"System Security {'Enabled' if current_bool else 'Disabled'}", 3000)
+        except Exception as e:
+            QMessageBox.critical(self, "Permission Denied", f"Could not update system security settings.\nPlease ensure you have sudo access.\nError: {e}")
+            # Revert UI state
+            self.pam_toggle.blockSignals(True)
+            self.pam_toggle.setChecked(not current_bool)
+            self.pam_toggle.blockSignals(False)
+        finally:
+            self.pam_updating = False
+
     def on_threshold_changed(self, value):
         self.t_label.setText(f"{value/100:.2f}")
 
     def reset_settings(self):
         self.load_config()
         self.t_slider.setValue(int(self.config.get("threshold", 0.45) * 100))
-        self.t_label.setText(f"{self.config.get('threshold', 0.45):.2f}")
+        self.m_combo.setCurrentText(self.config.get("model_name", "buffalo_s"))
         self.c_spin.setValue(self.config.get("cooldown_time", 60))
         self.f_spin.setValue(self.config.get("max_failures", 5))
-        self.m_combo.setCurrentText(self.config.get("model_name", "buffalo_s"))
-        self.statusBar().showMessage("Settings Reset", 3000)
+        idx = self.config.get("camera_index")
+        self.cam_idx_spin.setValue(-1 if idx is None else idx)
+        self.cam_type_combo.setCurrentText(self.config.get("camera_type", "AUTO"))
 
     def apply_settings(self):
         self.config["threshold"] = self.t_slider.value() / 100
+        self.config["model_name"] = self.m_combo.currentText()
         self.config["cooldown_time"] = self.c_spin.value()
         self.config["max_failures"] = self.f_spin.value()
-        self.config["model_name"] = self.m_combo.currentText()
+        idx = self.cam_idx_spin.value()
+        self.config["camera_index"] = None if idx == -1 else idx
+        self.config["camera_type"] = self.cam_type_combo.currentText()
         self.save_config()
         
     def refresh_users(self):
@@ -319,12 +392,8 @@ class LinuxHelloGUI(QMainWindow):
         item = self.user_list.currentItem()
         if not item: return
         username = item.text()
-        reply = QMessageBox.question(self, 'Confirm Delete', 
-                                   f"Delete identity for '{username}'?",
-                                   QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-        if reply == QMessageBox.Yes:
-            users_dir = os.path.join(PROJECT_ROOT, self.config.get("users_dir", "config/users"))
-            path = os.path.join(users_dir, f"{username}.npy")
+        if QMessageBox.question(self, 'Delete', f"Delete {username}?") == QMessageBox.Yes:
+            path = os.path.join(PROJECT_ROOT, self.config.get("users_dir", "config/users"), f"{username}.npy")
             if os.path.exists(path):
                 os.remove(path)
                 self.refresh_users()
@@ -338,32 +407,29 @@ class LinuxHelloGUI(QMainWindow):
 
     def start_video(self):
         self.enroll_status.setText("Initializing...")
-        self.enroll_btn.setText("Stop Live Feed")
+        self.enroll_btn.setText("Stop Feed")
         self.video_thread = VideoThread(self.config.get("model_name", "buffalo_s"))
         self.video_thread.change_pixmap_signal.connect(self.update_image)
         self.video_thread.face_detected_signal.connect(self.on_face_detected)
         self.video_thread.start()
 
     def stop_video(self):
-        if self.video_thread:
-            self.video_thread.stop()
+        if self.video_thread: self.video_thread.stop()
         self.image_label.setText("Camera Inactive")
         self.image_label.setPixmap(QPixmap())
-        self.enroll_btn.setText("Start Live Capture")
+        self.enroll_btn.setText("Start Feed")
         self.enroll_status.setText("Standby")
         self.save_enroll_btn.setEnabled(False)
 
     @Slot(QImage)
     def update_image(self, q_img):
         pixmap = QPixmap.fromImage(q_img)
-        self.image_label.setPixmap(pixmap.scaled(self.image_label.size(), 
-                                               Qt.KeepAspectRatio, 
-                                               Qt.SmoothTransformation))
+        self.image_label.setPixmap(pixmap.scaled(self.image_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
 
     @Slot(bool, object)
     def on_face_detected(self, detected, face_obj):
         if detected:
-            self.enroll_status.setText("<font color='#4CAF50'><b>READY: FACE DETECTED</b></font>")
+            self.enroll_status.setText("<font color='#4CAF50'><b>FACE DETECTED</b></font>")
             self.current_face_embedding = face_obj.normed_embedding
             self.save_enroll_btn.setEnabled(True)
         else:
@@ -372,12 +438,9 @@ class LinuxHelloGUI(QMainWindow):
 
     def save_identity(self):
         username = self.u_input.text().strip()
-        if not username: return
-        if self.current_face_embedding is not None:
-            users_dir = os.path.join(PROJECT_ROOT, self.config.get("users_dir", "config/users"))
-            if not os.path.exists(users_dir): os.makedirs(users_dir)
-            save_path = os.path.join(users_dir, f"{username}.npy")
-            np.save(save_path, self.current_face_embedding)
+        if username and self.current_face_embedding is not None:
+            path = os.path.join(PROJECT_ROOT, self.config.get("users_dir", "config/users"), f"{username}.npy")
+            np.save(path, self.current_face_embedding)
             self.refresh_users()
             self.stop_video()
             self.u_input.clear()
@@ -391,20 +454,14 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
     palette = QPalette()
-    bg = QColor(32, 34, 37)
+    bg = QColor(44, 47, 51)
     palette.setColor(QPalette.Window, bg)
     palette.setColor(QPalette.WindowText, Qt.white)
-    palette.setColor(QPalette.Base, QColor(47, 49, 54))
-    palette.setColor(QPalette.AlternateBase, bg)
-    palette.setColor(QPalette.ToolTipBase, Qt.white)
-    palette.setColor(QPalette.ToolTipText, Qt.white)
-    palette.setColor(QPalette.Text, Qt.white)
+    palette.setColor(QPalette.Base, QColor(35, 39, 42))
     palette.setColor(QPalette.Button, QColor(64, 68, 75))
-    palette.setColor(QPalette.ButtonText, Qt.white)
-    palette.setColor(QPalette.Link, QColor(0, 176, 244))
     palette.setColor(QPalette.Highlight, QColor(0, 176, 244))
     app.setPalette(palette)
-    app.setFont(QFont("Segoe UI", 9))
+    app.setFont(QFont("Verdana", 9))
     window = LinuxHelloGUI()
     window.show()
     sys.exit(app.exec())
