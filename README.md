@@ -1,75 +1,64 @@
-# linux-hello: Windows Hello for Linux
+# Linux Hello: Windows Hello for Linux
 
-`linux-hello` is a secure, light-weight, and professional face-recognition authentication system for Linux using IR or RGB cameras. It follows a memory-safe and distributed architecture to provide seamless login and `sudo` experiences.
+`Linux Hello` is a secure, light-weight, and professional face-recognition authentication system for Linux. It provides a seamless login and `sudo` experience using IR or RGB cameras, powered by a memory-safe Rust PAM module and a high-performance Python AI daemon.
 
 ---
 
 ## 🌟 Key Features
 
-- **Memory Safe**: The core PAM (Pluggable Authentication Module) is written in **Rust** using `pam-sys` for maximum security.
-- **AI Engine**: Powered by **InsightFace** (`buffalo_s` model), optimized for performance.
-- **Universal Camera Support**: High-reliability recognition using **IR cameras** with automatic fallback to **RGB cameras** for devices without infrared hardware.
-- **Multi-User Support**: Individual face-profiles stored as mathematical vectors.
-- **Auto-Detection**: Automatic discovery of camera devices (`/dev/video*`).
-- **Fail-safes**:
-  - **Auth Throttling**: Cooldown period after consecutive failed attempts.
-  - **PAM Timeout**: Non-blocking authentication with a 2-second socket timeout.
+- **Memory Safe Security**: Core PAM module written in **Rust** for maximum safety and zero-latency.
+- **Native Management Console**: A premium **PySide6 (Qt)** desktop app for configuration and identity management.
+- **Live AI Feedback**: Real-time camera feed with face detection bounding boxes and "ready-to-save" status.
+- **Universal Hardware Support**: Native **IR Camera** support with automatic fallback to **RGB cameras**.
+- **Real-time Configuration**: "Apply" and "Reset" controls with **Hot-Reloading** support—changes take effect instantly without restarting services.
+- **Face CRUD**: Full Create, Read, and Delete operations for user face profiles.
 
 ---
 
 ## 🏗️ Architecture
 
-1. **Rust PAM Module** (`src/pam_rs/`): A lightweight shared object that connects to the daemon via a Unix socket (`/run/linux-hello.sock`).
-2. **Recognition Daemon** (`src/daemon/main.py`): A persistent background service handling AI processing and camera capture.
-3. **Enrollment CLI** (`src/cli/enroll.py`): An interactive tool to capture and save face identities.
-4. **Systemd Service**: Manages the daemon lifecycle.
+1. **Rust PAM Module** (`src/pam_rs/`): Lightweight shared object connecting to the daemon via a Unix socket.
+2. **Recognition Daemon** (`src/daemon/main.py`): Persistent background service for AI processing (InsightFace) and camera capture.
+3. **Management Console** (`src/gui/gui_app.py`): Professional desktop GUI for settings and enrollment.
+4. **Systemd Integration**: Automated lifecycle management for all background components.
 
 ---
 
 ## ⚡ Installation
 
 ### Prerequisites
-
-- Python 3.8+
+- Python 3.10+
 - Rust Toolchain (`cargo`, `rustc`)
-- System libraries: `libpam0g-dev`, `build-essential`, `cmake`
+- System libraries: `libpam0g-dev`, `build-essential`, `cmake`, `libxcb-cursor0`
 
 ### Automatic Setup
-
-Run the included installer script:
-
 ```bash
 chmod +x scripts/install.sh
-./scripts/install.sh
+sudo ./scripts/install.sh
 ```
-
-This script handles dependency installation, virtual environment setup, Rust compilation, and service configuration.
+This script automates dependency installation, virtual environment setup, Rust compilation, service registration, and creates a **Desktop Entry** for the Management Console.
 
 ---
 
 ## 🚀 Usage
 
-### 1. Enroll your face
-
+### 1. Launch Management Console
+Find **"Linux Hello Management"** in your application menu, or run:
 ```bash
-./venv/bin/python src/cli/enroll.py
+./venv/bin/python src/gui/gui_app.py
 ```
+Use the **"Dashboard"** to monitor status and the **"New Enrollment"** section to capture your identity with live AI feedback.
 
-Follow the prompts to capture your face identity. **Note:** If using an RGB camera, ensure you are in a well-lit environment.
-
-### 2. Configure PAM
-
-To enable face-recognition, edit your PAM configuration (e.g., `/etc/pam.d/common-auth`):
-
+### 2. Configure PAM (Final Step)
+To enable face-recognition for your system, add this line to the **top** of `/etc/pam.d/common-auth`:
 ```text
 auth sufficient pam_hello.so
 ```
 
-### 3. Manage the Service
-
+### 3. CLI Alternative
+You can still use the traditional CLI for enrollment if preferred:
 ```bash
-sudo systemctl status linux-hello
-sudo systemctl restart linux-hello
+./venv/bin/python src/cli/enroll.py [username]
 ```
 
 ---
@@ -78,33 +67,26 @@ sudo systemctl restart linux-hello
 
 ```text
 linux-hello/
-├── config/             # Identity data (users/*.npy)
-├── scripts/            # Automation & setup
-│   ├── install.sh      # One-click installer
-│   └── init_models.py  # Model downloader
+├── config/             # Configuration & Identity storage
+├── scripts/            # Install & Initialization scripts
 ├── src/
-│   ├── cli/            # Enrollment tools
-│   ├── daemon/         # Python background service
-│   └── pam_rs/         # Rust-based PAM source
-└── requirements.txt    # Python dependencies
+│   ├── gui/            # Native PySide6 Management App
+│   ├── daemon/         # AI Recognition Service
+│   ├── cli/            # Legacy Enrollment Tools
+│   └── pam_rs/         # Rust PAM Module Source
+└── requirements.txt    # Python dependencies (PySide6, InsightFace, etc.)
 ```
 
 ---
 
-## 🛡️ Security
+## 🛡️ Security & Settings
 
-- **Throttling**: After 5 failed attempts, the user is locked out from face-recognition for 60 seconds.
-- **Socket Isolation**: The heavy AI stack is isolated from the desktop login processes.
-- **Camera Priority**: Automatically uses IR if available for superior security and low-light performance.
-
----
-
-## 🤝 Contributing
-
-Contributions are welcome! Whether it's adding liveness detection, improving camera index heuristics, or hardening the Rust bindings.
+- **Match Threshold**: Adjust AI strictness (Higher = More Secure).
+- **Max Failures**: Number of attempts allowed before a security cooldown.
+- **Hot-Reloading**: Switching AI models (Lite vs Precision) happens instantly across the system when you hit "Apply".
+- **Hardware Isolation**: The AI stack runs in an isolated process away from the critical PAM login flow.
 
 ---
 
 ## ⚖️ License
-
 MIT License. See [LICENSE](LICENSE) for details.

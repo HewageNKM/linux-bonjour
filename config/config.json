@@ -4,7 +4,7 @@
     "threshold": 0.7,
     "users_dir": "config/users",
     "cooldown_time": 60,
-    "max_failures": 1,
+    "max_failures": 3,
     "camera_index": null,
     "camera_type": "AUTO"
 }

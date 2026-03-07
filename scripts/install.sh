@@ -59,7 +59,7 @@ echo "Creating desktop entry for Native Management GUI..."
 DESKTOP_FILE="/usr/share/applications/linux-hello-gui.desktop"
 cat <<EOF | sudo tee $DESKTOP_FILE > /dev/null
 [Desktop Entry]
-Name=Linux Hello Management
+Name=Linux Hello
 Comment=Manage face recognition settings and users
 Exec=$PROJECT_DIR/venv/bin/python $PROJECT_DIR/src/gui/gui_app.py
 Icon=$PROJECT_DIR/src/gui/assets/logo.png
