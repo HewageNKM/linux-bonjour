@@ -1,1 +1,30 @@
-venv
+# Virtual Environment
+venv/
+.venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Rust
+target/
+src/pam_rs/target/
+Cargo.lock
+
+# Compiled PAM modules
+*.so
+src/pam/*.so
+src/pam_rs/target/release/*.so
+
+# Project Specific
+config/*.npy
+config/users/
+models/
+
+# System/IDE
+.DS_Store
+.vscode/
+.idea/
+*.swp

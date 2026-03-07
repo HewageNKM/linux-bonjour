@@ -1,0 +1,12 @@
+[package]
+name = "pam-hello"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "pam_hello"
+crate-type = ["cdylib"]
+
+[dependencies]
+pam-sys = "0.5"
+libc = "0.2"
