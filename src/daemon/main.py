@@ -21,6 +21,7 @@ class FaceDaemon:
         self.app = FaceAnalysis(name=MODEL_NAME, providers=['CPUExecutionProvider'])
         self.app.prepare(ctx_id=0, det_size=(320, 320))
         self.cam = IRCamera()
+        print(f"FaceDaemon initialized with {self.cam.camera_type} camera at index {self.cam.index}")
         
         if not os.path.exists(USERS_DIR):
             os.makedirs(USERS_DIR)

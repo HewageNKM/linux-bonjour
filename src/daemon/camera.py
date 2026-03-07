@@ -1,25 +1,35 @@
 import cv2
 import os
 
-class IRCamera:
+class Camera:
     def __init__(self):
-        self.index = self._find_ir_camera()
+        self.index, self.camera_type = self._find_camera()
 
-    def _find_ir_camera(self):
-        # Common IR camera names or drivers to look for (heuristic)
+    def _find_camera(self):
+        # 1. Try to find an IR camera (priority)
         # Often IR cameras are on even indices (/dev/video2, 4, 6)
-        # We'll try common indices first
-        for i in [2, 4, 6, 0]:
+        for i in [2, 4, 6]:
             if os.path.exists(f"/dev/video{i}"):
                 cap = cv2.VideoCapture(i)
                 if cap.isOpened():
-                    # Check if it emits IR (some cameras have metadata, but simple check for now)
                     ret, _ = cap.read()
                     cap.release()
                     if ret:
-                        print(f"Auto-detected IR camera at /dev/video{i}")
-                        return i
-        return 0 # Fallback to default
+                        print(f"Detected IR camera at /dev/video{i}")
+                        return i, "IR"
+
+        # 2. Fallback to any available camera (RGB)
+        for i in [0, 1, 3, 5]:
+            if os.path.exists(f"/dev/video{i}"):
+                cap = cv2.VideoCapture(i)
+                if cap.isOpened():
+                    ret, _ = cap.read()
+                    cap.release()
+                    if ret:
+                        print(f"Falling back to RGB camera at /dev/video{i}")
+                        return i, "RGB"
+
+        return 0, "UNKNOWN"
 
     def get_frame(self):
         cap = cv2.VideoCapture(self.index)
@@ -32,6 +42,9 @@ class IRCamera:
         ret, frame = cap.read()
         cap.release()
         return frame if ret else None
+
+# Maintain alias for compatibility
+IRCamera = Camera
 
 if __name__ == "__main__":
     # Test if the red lights blink!
