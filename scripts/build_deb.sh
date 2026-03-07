@@ -19,6 +19,8 @@ cd "$PROJECT_ROOT"
 # 2. Stage Files
 echo "Staging files..."
 cp src/pam_rs/target/release/libpam_hello.so pkg/usr/lib/security/pam_hello.so
+mkdir -p pkg/usr/share/polkit-1/actions
+cp pkg/usr/share/polkit-1/actions/org.linuxhello.policy pkg/usr/share/polkit-1/actions/org.linuxhello.policy 2>/dev/null || cp org.linuxhello.policy pkg/usr/share/polkit-1/actions/ 2>/dev/null || true
 
 # Clean and sync app files
 # We exclude venv, git, and other build artifacts

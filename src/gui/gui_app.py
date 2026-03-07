@@ -341,12 +341,13 @@ class LinuxHelloGUI(QMainWindow):
         self.pam_updating = True
         command = "--enable-all" if current_bool else "--disable-all"
         try:
-            # We must use sudo here for mutation
-            subprocess.run(["sudo", os.path.join(PROJECT_ROOT, "scripts", "setup_pam.sh"), command], check=True)
+            # Fix: Use pkexec for graphical environments to trigger a password prompt
+            script_path = os.path.join(PROJECT_ROOT, "scripts", "setup_pam.sh")
+            subprocess.run(["pkexec", script_path, command], check=True)
             self.last_known_pam_state = current_bool
             self.statusBar().showMessage(f"System Security {'Enabled' if current_bool else 'Disabled'}", 3000)
         except Exception as e:
-            QMessageBox.critical(self, "Permission Denied", f"Could not update system security settings.\nPlease ensure you have sudo access.\nError: {e}")
+            QMessageBox.critical(self, "Elevation Failed", f"Could not update system security settings.\nA password prompt should have appeared to authorize this change.\n\nError: {e}")
             # Revert UI state
             self.pam_toggle.blockSignals(True)
             self.pam_toggle.setChecked(not current_bool)
