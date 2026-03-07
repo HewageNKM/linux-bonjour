@@ -202,7 +202,7 @@ class LinuxHelloGUI(QMainWindow):
         
         config_layout.addWidget(QLabel("<b>AI Model</b>"))
         self.m_combo = QComboBox()
-        self.m_combo.addItems(["buffalo_s", "buffalo_l"])
+        self.m_combo.addItems(["buffalo_s", "buffalo_m", "buffalo_l", "antelopev2"])
         self.m_combo.setCurrentText(self.config.get("model_name", "buffalo_s"))
         config_layout.addWidget(self.m_combo)
         
@@ -379,8 +379,22 @@ class LinuxHelloGUI(QMainWindow):
         self.cam_type_combo.setCurrentText(self.config.get("camera_type", "AUTO"))
 
     def apply_settings(self):
+        new_model = self.m_combo.currentText()
+        old_model = self.config.get("model_name", "buffalo_s")
+
+        if new_model != old_model:
+            reply = QMessageBox.warning(self, "Model Switch Warning", 
+                                       f"You are switching the AI engine from '{old_model}' to '{new_model}'.\n\n"
+                                       "IMPORTANT: Face signatures are model-specific. Your existing face profiles "
+                                       "will NOT work with the new model and you will need to re-enroll them.\n\n"
+                                       "Do you want to proceed with the switch?",
+                                       QMessageBox.Yes | QMessageBox.No)
+            if reply == QMessageBox.No:
+                self.m_combo.setCurrentText(old_model)
+                return
+
         self.config["threshold"] = self.t_slider.value() / 100
-        self.config["model_name"] = self.m_combo.currentText()
+        self.config["model_name"] = new_model
         self.config["cooldown_time"] = self.c_spin.value()
         self.config["max_failures"] = self.f_spin.value()
         idx = self.cam_idx_spin.value()

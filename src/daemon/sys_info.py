@@ -23,10 +23,15 @@ def get_system_specs():
     return specs
 
 def suggest_model(specs):
-    if specs["ram_gb"] < 8:
-        return "buffalo_s", "Lightweight model (Recommended for < 8GB RAM)"
+    ram = specs.get("ram_gb", 8)
+    if ram < 4:
+        return "buffalo_s", "Ultra-lightweight model (Recommended for < 4GB RAM)"
+    elif ram < 8:
+        return "buffalo_m", "Balanced performance model (Recommended for 4-8GB RAM)"
+    elif ram < 16:
+        return "buffalo_l", "High-accuracy model (Recommended for 8-16GB RAM)"
     else:
-        return "buffalo_l", "High-accuracy model (Recommended for 8GB+ RAM)"
+        return "antelopev2", "Maximum precision model (Recommended for 16GB+ RAM)"
 
 if __name__ == "__main__":
     specs = get_system_specs()

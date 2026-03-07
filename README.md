@@ -11,7 +11,7 @@
 - **Live AI Feedback**: Real-time camera feed with face detection bounding boxes, landmark overlays, and instant "ready-to-save" status.
 - **Hardware Sovereignty**: Full control over camera selection (Index and Type: IR/RGB/AUTO) directly from the GUI.
 - **Zero-Setup Deployment**: One-click toggle in the GUI or a single terminal command to enable/disable security for Login, Sudo, and Lock Screen.
-- **Hot-Reloading Support**: Switch between AI models (Lite vs Precision) or update security thresholds instantly without restarting services.
+- **Hot-Reloading Support**: Switch between **four AI models** (from lightweight `buffalo_s` to ultra-precise `antelopev2`) instantly without restarting services.
 - **Identity Management**: Professional CRUD operations for user face profiles with high-fidelity visual feedback.
 
 ---
