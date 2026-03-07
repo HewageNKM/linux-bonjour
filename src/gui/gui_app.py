@@ -107,6 +107,15 @@ class LinuxHelloGUI(QMainWindow):
         super().__init__()
         self.setWindowTitle("Linux Hello")
         self.setMinimumSize(1000, 750)
+        
+        # Set Window Icon
+        logo_path = os.path.join(PROJECT_ROOT, "src", "gui", "assets", "logo.png")
+        if not os.path.exists(logo_path): # Fallback for installed package
+            logo_path = "/usr/share/linux-hello/logo.png"
+        
+        if os.path.exists(logo_path):
+            self.setWindowIcon(QPixmap(logo_path))
+        
         self.config_path = os.path.join(PROJECT_ROOT, "config", "config.json")
         self.load_config()
         
@@ -155,10 +164,22 @@ class LinuxHelloGUI(QMainWindow):
         left_side_layout = QVBoxLayout(left_side)
         left_side_layout.setContentsMargins(0, 0, 0, 0)
 
-        # Header
+        # Header with Logo
+        header_container = QWidget()
+        header_hbox = QHBoxLayout(header_container)
+        header_hbox.setContentsMargins(0, 0, 0, 0)
+        
+        if os.path.exists(logo_path):
+            logo_label = QLabel()
+            logo_px = QPixmap(logo_path).scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            logo_label.setPixmap(logo_px)
+            header_hbox.addWidget(logo_label)
+            
         header = QLabel("Linux Hello")
         header.setFont(QFont("Outfit", 26, QFont.Bold))
-        left_side_layout.addWidget(header)
+        header_hbox.addWidget(header)
+        header_hbox.addStretch()
+        left_side_layout.addWidget(header_container)
         
         self.status_label = QLabel("Daemon: Checking...")
         self.status_label.setStyleSheet("color: #ffa000; font-weight: bold;")

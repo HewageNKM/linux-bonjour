@@ -1,4 +1,4 @@
-# Linux Hello: Windows Hello for Linux 🛡️🤳
+# <img src="src/gui/assets/logo.png" width="48" height="48"> Linux Hello: Windows Hello for Linux 🛡️🤳
 
 `Linux Hello` is a secure, light-weight, and professional face-recognition authentication system for Linux. It provides a seamless login and `sudo` experience using IR or RGB cameras, powered by a memory-safe Rust PAM module and a high-performance Python AI daemon with a premium PySide6 management console.
 
