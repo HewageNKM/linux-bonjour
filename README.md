@@ -25,22 +25,22 @@
 
 ---
 
-## ⚡ Installation
+## ⚡ Installation (Recommended)
 
-### Prerequisites
+### 📦 Professional Package (.deb)
 
-- Python 3.10+
-- Rust Toolchain (`cargo`, `rustc`)
-- System libraries: `libpam0g-dev`, `build-essential`, `cmake`, `libxcb-cursor0`, `libgl1-mesa-glx`
+The fastest and most common way to install Linux Hello on Debian-based systems (Ubuntu, Zorin, etc).
 
-### Automatic Setup
-
-```bash
-chmod +x scripts/install.sh
-sudo ./scripts/install.sh
-```
-
-This script automates dependency installation, virtual environment setup, Rust compilation, service registration, and creates a **Desktop Entry** for the Management Console.
+1.  **Build or Download the package**:
+    ```bash
+    ./scripts/build_deb.sh
+    ```
+2.  **Install with automatic dependency handling**:
+    ```bash
+    sudo apt update
+    sudo apt install ./linux-hello_1.0.0_amd64.deb
+    ```
+    *Note: If you have a previous broken version, run `sudo dpkg --purge linux-hello` first.*
 
 ---
 
@@ -48,39 +48,37 @@ This script automates dependency installation, virtual environment setup, Rust c
 
 ### 1. Launch Management Console
 
-Find **"Linux Hello Management"** in your application menu, or run:
+Find **"Linux Hello"** in your application menu, or run the global command:
 
 ```bash
-./venv/bin/python src/gui/gui_app.py
+linux-hello
 ```
 
 Use the **"Dashboard"** to monitor daemon status and system security. The **"New Enrollment"** section allows you to capture your identity with live AI feedback.
 
-### 2. Enable System-wide Face Unlock (Zero-Setup)
+### 2. Enable System-wide Face Unlock
 
-You can enable/disable biometric security for your **Login, Sudo, and Lock Screen** directly in the GUI settings or via the terminal:
+Enable/disable biometric security for your **Login, Sudo, and Lock Screen** directly in the GUI settings or via the terminal:
 
 ```bash
-sudo ./scripts/setup_pam.sh --enable-all
+# GUI Method: Toggle the "Enable Face Unlock" checkbox (requires password)
+# Terminal Method:
+sudo /usr/share/linux-hello/scripts/setup_pam.sh --enable-all
 ```
-
-Check configuration status anytime: `sudo ./scripts/setup_pam.sh --status`.
 
 ---
 
-## 📦 Professional Packaging (Debian/Ubuntu)
+## 🛠️ Development & Manual Setup
 
-Distribute Linux Hello professionally using the built-in packaging tool:
-
-```bash
-chmod +x scripts/build_deb.sh
-./scripts/build_deb.sh
-```
-
-This generates a `.deb` package that handles system-wide installation to `/usr/share/linux-hello` and automatic service registration. Install it with:
+If you prefer to run from source:
 
 ```bash
-sudo dpkg -i linux-hello_1.0.0_amd64.deb
+# Install system deps
+sudo apt install -y libpam0g-dev build-essential cmake libxcb-cursor0 libgl1
+
+# Run installer
+chmod +x scripts/install.sh
+sudo ./scripts/install.sh
 ```
 
 ---
@@ -89,24 +87,8 @@ sudo dpkg -i linux-hello_1.0.0_amd64.deb
 
 - **Match Threshold**: Adjust AI strictness (0.45 default, Higher = More Secure).
 - **Max Failures**: Number of attempts allowed before a security cooldown period.
-- **Cooldown (s)**: Duration of the lockout after maximum failures are reached.
-- **Hardware Isolation**: The AI processing stack runs in an isolated process away from the critical PAM login flow for maximum stability.
-
----
-
-## 📂 Project Structure
-
-```text
-linux-hello/
-├── pkg/                # Debian packaging metadata and root
-├── scripts/            # Install, Packaging, and PAM management tools
-├── src/
-│   ├── gui/            # Native PySide6 Management App
-│   ├── daemon/         # AI Recognition & Hardware Service
-│   └── pam_rs/         # Memory-safe Rust PAM Module
-├── config/             # System-wide configuration & Face identities
-└── requirements.txt    # Python dependencies
-```
+- **Polkit Integration**: System-wide changes trigger a professional graphical authentication prompt.
+- **Hardware Isolation**: The AI stack runs in an isolated process away from the critical PAM login flow.
 
 ---
 
