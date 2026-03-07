@@ -68,6 +68,17 @@
                 <!-- User items will be injected here -->
             </div>
         </section>
+
+        <section class="enroll-section">
+            <div class="card enroll-card">
+                <h3>Enroll New Identity</h3>
+                <div class="input-row">
+                    <input type="text" id="enroll-username" placeholder="Username" class="text-input">
+                    <button class="btn btn-primary" onclick="enrollUser()">Start Capture</button>
+                </div>
+                <div id="enroll-status" class="subtext"></div>
+            </div>
+        </section>
     </main>
 
     <div id="notification" class="notification">Settings Saved!</div>

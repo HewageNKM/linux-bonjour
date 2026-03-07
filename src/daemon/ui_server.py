@@ -6,8 +6,41 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import List, Optional
 from sys_info import get_system_specs, suggest_model
+import numpy as np
+import cv2
+from insightface.app import FaceAnalysis
+
+# Add src to path for IRCamera
+import sys
+sys.path.append("src")
+from daemon.camera import IRCamera
+import logging
+
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler("config/ui_error.log"),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger("ui_server")
 
 app = FastAPI(title="Linux Hello Management API")
+
+# Global variables for model and camera to avoid reloading
+_face_app = None
+
+def get_face_app():
+    global _face_app
+    if _face_app is None:
+        config = load_config()
+        model_name = config.get("model_name", "buffalo_s")
+        print(f"Loading FaceAnalysis model: {model_name}...")
+        _face_app = FaceAnalysis(name=model_name, providers=['CPUExecutionProvider'])
+        _face_app.prepare(ctx_id=0, det_size=(320, 320))
+    return _face_app
 
 CONFIG_PATH = "config/config.json"
 VENV_PYTHON = "venv/bin/python3"
@@ -56,8 +89,56 @@ def get_users():
     if not os.path.exists(users_dir):
         return []
     return [f.replace(".npy", "") for f in os.listdir(users_dir) if f.endswith(".npy")]
-
-@app.post("/api/model/switch")
+@app.post("/api/users/enroll")
+def enroll_user(username: str):
+    logger.info(f"Enrollment request for user: {username}")
+    if not username:
+        raise HTTPException(status_code=400, detail="Username is required")
+    
+    try:
+        app_face = get_face_app()
+        cam = IRCamera()
+        
+        # Try to get a valid frame
+        frame = None
+        for i in range(10):
+            frame = cam.get_frame()
+            if frame is not None:
+                logger.info(f"Frame captured on attempt {i+1}")
+                break
+            import time
+            time.sleep(0.2)
+            
+        if frame is None:
+            logger.error("Camera access failed during enrollment")
+            raise HTTPException(status_code=503, detail="Could not access camera (is another app using it?)")
+        
+        faces = app_face.get(frame)
+        if not faces:
+            logger.warning(f"No face detected for {username}")
+            raise HTTPException(status_code=400, detail="No face detected. Please look directly at the camera.")
+        
+        embedding = faces[0].normed_embedding
+        config = load_config()
+        users_dir = config["users_dir"]
+        
+        if not os.path.exists(users_dir):
+            os.makedirs(users_dir)
+            
+        save_path = os.path.join(users_dir, f"{username}.npy")
+        np.save(save_path, embedding)
+        logger.info(f"Successfully enrolled {username} to {save_path}")
+        
+        # Also maintain legacy owner.npy for the first user
+        if not os.path.exists("config/owner.npy"):
+            np.save("config/owner.npy", embedding)
+            
+        return {"status": "success", "message": f"User {username} enrolled successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Unexpected error during enrollment for {username}")
+        raise HTTPException(status_code=500, detail=str(e))
 def switch_model(model_name: str):
     config = load_config()
     if model_name not in ["buffalo_s", "buffalo_l"]:

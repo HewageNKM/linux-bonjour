@@ -68,6 +68,40 @@ function showNotification(msg, duration = 3000) {
     setTimeout(() => el.classList.remove('show'), duration);
 }
 
+async function enrollUser() {
+    const username = document.getElementById('enroll-username').value.trim();
+    const statusEl = document.getElementById('enroll-status');
+    
+    if (!username) {
+        statusEl.textContent = "Please enter a username.";
+        statusEl.classList.add('error');
+        return;
+    }
+
+    statusEl.textContent = "Capturing face... Please look at the camera.";
+    statusEl.classList.remove('error');
+
+    try {
+        const response = await fetch(`/api/users/enroll?username=${username}`, {
+            method: 'POST'
+        });
+        
+        const result = await response.json();
+        if (response.ok) {
+            statusEl.textContent = `Success: ${result.message}`;
+            statusEl.classList.remove('error');
+            document.getElementById('enroll-username').value = '';
+            refreshData();
+        } else {
+            statusEl.textContent = `Error: ${result.detail || result.message}`;
+            statusEl.classList.add('error');
+        }
+    } catch (err) {
+        statusEl.textContent = `Connectivity Error: ${err}`;
+        statusEl.classList.add('error');
+    }
+}
+
 // Slider live update
 document.getElementById('threshold-slider').oninput = function() {
     document.getElementById('threshold-val').textContent = (this.value / 100).toFixed(2);

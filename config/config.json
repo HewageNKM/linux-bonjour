@@ -1,6 +1,6 @@
 {
     "socket_path": "/run/linux-hello.sock",
-    "model_name": "buffalo_s",
+    "model_name": "buffalo_l",
     "threshold": 0.45,
     "users_dir": "config/users",
     "cooldown_time": 60,
