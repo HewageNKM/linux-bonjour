@@ -4,9 +4,19 @@ import sys
 import os
 from insightface.app import FaceAnalysis
 
+import json
+
 # Add daemon path to import our Camera
 sys.path.append(os.path.abspath("src"))
 from daemon.camera import IRCamera
+
+CONFIG_PATH = "config/config.json"
+
+def load_config():
+    if os.path.exists(CONFIG_PATH):
+        with open(CONFIG_PATH, 'r') as f:
+            return json.load(f)
+    return {"model_name": "buffalo_s", "users_dir": "config/users"}
 
 def enroll_user(username=None):
     if not username:
@@ -16,8 +26,11 @@ def enroll_user(username=None):
         print("Username cannot be empty.")
         return
 
-    # Initialize the "Lite" app for 8GB RAM
-    app = FaceAnalysis(name='buffalo_s', providers=['CPUExecutionProvider'])
+    config = load_config()
+    model_name = config.get("model_name", "buffalo_s")
+    
+    print(f"Initializing enrollment with model: {model_name}...")
+    app = FaceAnalysis(name=model_name, providers=['CPUExecutionProvider'])
     app.prepare(ctx_id=0, det_size=(320, 320))
 
     cam = IRCamera()
@@ -39,11 +52,13 @@ def enroll_user(username=None):
     if faces:
         embedding = faces[0].normed_embedding
         
-        users_dir = "config/users"
+        users_dir = config.get("users_dir", "config/users")
         if not os.path.exists(users_dir):
             os.makedirs(users_dir)
             
-        np.save(os.path.join(users_dir, f"{username}.npy"), embedding)
+        save_path = os.path.join(users_dir, f"{username}.npy")
+        np.save(save_path, embedding)
+        
         # Also maintain legacy owner.npy for the first user
         if not os.path.exists("config/owner.npy"):
             np.save("config/owner.npy", embedding)
