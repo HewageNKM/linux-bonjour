@@ -28,6 +28,7 @@ rm -rf pkg/usr/share/linux-hello/*
 mkdir -p pkg/usr/share/linux-hello/src
 cp -r src/daemon src/gui pkg/usr/share/linux-hello/src/
 cp -r scripts config requirements.txt pkg/usr/share/linux-hello/
+cp src/gui/assets/logo.png pkg/usr/share/linux-hello/logo.png
 # Note: models will be downloaded by init_models.py during postinst or first run
 
 # Create the wrapper script
