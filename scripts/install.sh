@@ -54,17 +54,30 @@ sudo systemctl daemon-reload
 echo "Fixing configuration permissions..."
 sudo chown -R $REAL_USER:$REAL_USER "$PROJECT_DIR/config"
 
+# 7. Create Native GUI Desktop Entry
+echo "Creating desktop entry for Native Management GUI..."
+DESKTOP_FILE="/usr/share/applications/linux-hello-gui.desktop"
+cat <<EOF | sudo tee $DESKTOP_FILE > /dev/null
+[Desktop Entry]
+Name=Linux Hello Management
+Comment=Manage face recognition settings and users
+Exec=$PROJECT_DIR/venv/bin/python $PROJECT_DIR/src/gui/gui_app.py
+Icon=$PROJECT_DIR/src/gui/assets/logo.png
+Terminal=false
+Type=Application
+Categories=Settings;Security;
+EOF
+sudo chmod +x $DESKTOP_FILE
+
 echo "Enabling services..."
 sudo systemctl enable linux-hello || true
-sudo systemctl enable linux-hello-ui || true
 
 echo "Starting services..."
 sudo systemctl restart linux-hello || true
-sudo systemctl restart linux-hello-ui || true
 
 echo "------------------------------------------------"
 echo "Installation complete! 🎉"
 echo "1. Enroll your face: ./venv/bin/python src/cli/enroll.py"
-echo "2. Management UI: http://127.0.0.1:8080"
+echo "2. Native Management: Launch 'Linux Hello Management' from menu"
 echo "3. Final Step: Add 'auth sufficient pam_hello.so' to $PAM_CONFIG"
 echo "------------------------------------------------"
