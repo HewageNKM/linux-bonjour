@@ -232,6 +232,12 @@ class LinuxHelloGUI(QMainWindow):
         t_layout.addWidget(self.t_label)
         config_layout.addLayout(t_layout)
         
+        self.global_unlock_cb = QCheckBox("Global Face Unlock (Any Enrolled Face)")
+        self.global_unlock_cb.setChecked(self.config.get("global_unlock", False))
+        self.global_unlock_cb.setToolTip("Allows any person whose face is enrolled to authenticate as any user.\nUse only in trusted environments.")
+        self.global_unlock_cb.setStyleSheet("font-weight: bold; padding: 5px;")
+        config_layout.addWidget(self.global_unlock_cb)
+        
         config_layout.addWidget(QLabel("<b>AI Model</b>"))
         self.m_combo = QComboBox()
         self.m_combo.addItems(["buffalo_s", "buffalo_m", "buffalo_l", "antelopev2"])
@@ -322,8 +328,16 @@ class LinuxHelloGUI(QMainWindow):
         enroll_group = QGroupBox("New Enrollment")
         enroll_layout = QVBoxLayout()
         self.u_input = QLineEdit()
-        self.u_input.setPlaceholderText("Enter username...")
+        self.u_input.setPlaceholderText("Enter System Username")
+        # Auto-fill with system username
+        import getpass
+        self.u_input.setText(getpass.getuser())
+        self.u_input.setStyleSheet("padding: 8px; background-color: #40444b; border-radius: 5px;")
         enroll_layout.addWidget(self.u_input)
+        
+        warning_label = QLabel("⚠️ Important: Name must match your system username exactly.")
+        warning_label.setStyleSheet("color: #ffa000; font-size: 10px;")
+        enroll_layout.addWidget(warning_label)
         self.enroll_btn = QPushButton("Start Live Capture")
         self.enroll_btn.clicked.connect(self.toggle_video)
         enroll_layout.addWidget(self.enroll_btn)
@@ -448,6 +462,7 @@ class LinuxHelloGUI(QMainWindow):
         idx = self.cam_idx_spin.value()
         self.config["camera_index"] = None if idx == -1 else idx
         self.config["camera_type"] = self.cam_type_combo.currentText()
+        self.config["global_unlock"] = self.global_unlock_cb.isChecked()
         self.save_config()
         self.statusBar().showMessage("Settings applied successfully! ✨", 3000)
         

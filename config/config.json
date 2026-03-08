@@ -6,5 +6,6 @@
     "cooldown_time": 60,
     "max_failures": 3,
     "camera_index": null,
-    "camera_type": "AUTO"
+    "camera_type": "AUTO",
+    "global_unlock": false
 }

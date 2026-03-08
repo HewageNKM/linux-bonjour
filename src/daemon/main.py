@@ -13,6 +13,14 @@ def load_config():
     with open(CONFIG_PATH, 'r') as f:
         return json.load(f)
 
+# --- Logging Helper ---
+LOG_FILE = "/usr/share/linux-bonjour/daemon.log"
+def log_event(message):
+    try:
+        with open(LOG_FILE, 'a') as f:
+            f.write(f"[{time.ctime()}] {message}\n")
+    except: pass
+
 class FaceDaemon:
     def __init__(self):
         self.config = load_config()
@@ -40,20 +48,43 @@ class FaceDaemon:
         if username in self.failed_attempts:
             count, last_time = self.failed_attempts[username]
             if count >= self.config['max_failures'] and (now - last_time) < self.config['cooldown_time']:
+                log_event(f"AUTH FAILED: User {username} is throttled.")
                 print(f"User {username} is throttled. Wait {int(self.config['cooldown_time'] - (now - last_time))}s.")
                 return False
 
-        # 2. Load Embedding
-        user_file = os.path.join(self.config['users_dir'], f"{username}.npy")
-        if os.path.exists(user_file):
-            target_embedding = np.load(user_file)
-        elif os.path.exists("config/owner.npy"):
-            target_embedding = np.load("config/owner.npy")
+        # 2. Collect Target Embeddings
+        targets = [] # List of (label, embedding)
+        
+        if self.config.get("global_unlock", False):
+            # Try ALL enrolled faces
+            users_dir = self.config['users_dir']
+            if os.path.exists(users_dir):
+                for f in os.listdir(users_dir):
+                    if f.endswith(".npy"):
+                        try:
+                            emb = np.load(os.path.join(users_dir, f))
+                            targets.append((f.replace(".npy", ""), emb))
+                        except: pass
         else:
+            # Traditional strict username matching
+            user_file = os.path.join(self.config['users_dir'], f"{username}.npy")
+            if os.path.exists(user_file):
+                try:
+                    targets.append((username, np.load(user_file)))
+                except: pass
+        
+        # Fallback to owner if no targets found yet
+        if not targets and os.path.exists("config/owner.npy"):
+            try:
+                targets.append(("Owner", np.load("config/owner.npy")))
+            except: pass
+
+        if not targets:
+            log_event(f"AUTH FAILED: No face data found for '{username}'.")
             print(f"No embedding found for user {username}")
             return False
 
-        # 3. Capture and Verify
+        # 3. Capture Frame
         frame = self.cam.get_frame()
         if frame is None: return False
 
@@ -61,14 +92,25 @@ class FaceDaemon:
         if not faces: return False
 
         live_embedding = faces[0].normed_embedding
-        score = np.dot(live_embedding, target_embedding)
         
-        print(f"User: {username}, Match Score: {score:.4f}")
+        # 4. Match against all candidates
+        best_score = -1
+        best_match = None
         
-        if score > self.config['threshold']:
+        for name, target_embedding in targets:
+            score = np.dot(live_embedding, target_embedding)
+            if score > best_score:
+                best_score = score
+                best_match = name
+        
+        print(f"Auth Request: {username}, Best Match: {best_match}, Score: {best_score:.4f}")
+        
+        if best_score > self.config['threshold']:
+            log_event(f"AUTH SUCCESS: User '{username}' recognized as '{best_match}' (Score: {best_score:.4f})")
             self.failed_attempts[username] = (0, 0) # Reset on success
             return True
         else:
+            log_event(f"AUTH FAILED: User '{username}' best match was '{best_match}' with score {best_score:.4f}")
             # Increment failure count
             count, _ = self.failed_attempts.get(username, (0, 0))
             self.failed_attempts[username] = (count + 1, now)
