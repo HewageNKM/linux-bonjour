@@ -2,11 +2,18 @@ import cv2
 import os
 
 class Camera:
-    def __init__(self):
+    def __init__(self, config=None):
+        self.config = config or {}
         self.index, self.camera_type = self._find_camera()
         self.cap = None
 
     def _find_camera(self):
+        # 0. Check for manual override in config
+        manual_index = self.config.get("camera_index")
+        if manual_index is not None and manual_index != -1:
+            print(f"Using manual camera override at index {manual_index}")
+            return manual_index, self.config.get("camera_type", "AUTO")
+
         # 1. Try to find an IR camera (priority)
         for i in [2, 4, 6, 0, 1, 3]: # Expanded list
             if os.path.exists(f"/dev/video{i}"):

@@ -51,10 +51,8 @@ class FaceDaemon:
         self.app = FaceAnalysis(name=self.config['model_name'], root=models_dir, providers=['CPUExecutionProvider'])
         self.app.prepare(ctx_id=0, det_size=(320, 320))
         
-        # Initialize camera with optional config overrides
-        self.cam = IRCamera()
-        if self.config.get('camera_index') is not None:
-             self.cam.index = self.config['camera_index']
+        # Initialize camera with configuration
+        self.cam = IRCamera(config=self.config)
              
         print(f"FaceDaemon initialized with {self.cam.camera_type} camera at index {self.cam.index}")
         

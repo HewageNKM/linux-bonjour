@@ -96,10 +96,11 @@ class VideoThread(QThread):
     change_pixmap_signal = Signal(QImage)
     face_detected_signal = Signal(bool, object) # detected, face_obj
 
-    def __init__(self, model_name):
+    def __init__(self, config):
         super().__init__()
         self._run_flag = True
-        self.model_name = model_name
+        self.config = config
+        self.model_name = config.get("model_name", "buffalo_s")
         self.app = None
 
     def run(self):
@@ -108,7 +109,7 @@ class VideoThread(QThread):
             self.app = FaceAnalysis(name=self.model_name, providers=['CPUExecutionProvider'])
             self.app.prepare(ctx_id=0, det_size=(320, 320))
 
-        cam = IRCamera()
+        cam = IRCamera(config=self.config)
         while self._run_flag:
             frame = cam.get_frame()
             if frame is not None:
@@ -909,7 +910,7 @@ class LinuxHelloGUI(QMainWindow):
         self.enroll_status.setText("Initializing...")
         self.enroll_btn.setText("Stop Feed")
         self.scanner_overlay.show()
-        self.video_thread = VideoThread(self.config.get("model_name", "buffalo_s"))
+        self.video_thread = VideoThread(self.config)
         self.video_thread.change_pixmap_signal.connect(self.update_image)
         self.video_thread.face_detected_signal.connect(self.on_face_detected)
         self.video_thread.start()
