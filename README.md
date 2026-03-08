@@ -7,11 +7,11 @@ Linux Bonjour brings seamless, secure, and premium face-unlock to your Ubuntu/GN
 
 ## 🌟 Key Features (v1.1.0)
 
-- 🎨 **Ubuntu Yaru Redesign**: Native GTK-style dark theme with official Ubuntu branding, fonts (Ubuntu Family), and aesthetics.
-- 🔐 **Hardware-Bound Encryption**: Biometric signatures are protected with **AES-GCM (256-bit)** using keys derived from your system's **TPM 2.0** or `machine-id`.
+- 🎨 **Premium Glassmorphism Design**: High-end translucent UI with cyber-cyan accents, frosted glass effects, and a modern desktop aesthetic.
+- 🔐 **Hardware-Bound Encryption**: Biometric signatures are protected with **AES-GCM (256-bit)** using keys derived from your system's `machine-id`.
 - 🤳 **Hybrid Face Capture**: 
-    - **Auto-Capture**: Intelligent 1.6s countdown for hands-free enrollment with tracking overlays.
-    - **Grace Period**: 0.6s tracking tolerance to ensure stability during movements.
+    - **Live Scanner**: Real-time tracking and alignment using custom-styled ScannerOverlays.
+    - **Auto-Enrollment**: Intelligent countdown for hands-free biometric signature capture.
 - ⚙️ **Granular Face ID Toggling**: Independent control for **Login (GDM/SDDM/LightDM)**, **Sudo (Terminal)**, and **Polkit (GUI Admin Prompts)**.
 - 🛡️ **Terminal Feedback**: Real-time "Scanning...", "Matched!", and "Failed" messages directly in your terminal via **PAM Conversations**.
 - 🔄 **Intelligent Verification Loop**: A robust 3.5s (adjustable) "searching" experience that handles blurry frames and brief occlusions.

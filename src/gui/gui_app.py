@@ -9,8 +9,8 @@ import cv2
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QLabel, QSlider, QSpinBox, QPushButton, 
                              QGroupBox, QLineEdit, QListWidget, QProgressBar,
-                             QListWidgetItem, QMessageBox, QFrame, QComboBox,
-                             QScrollArea, QCheckBox)
+                              QListWidgetItem, QMessageBox, QFrame, QComboBox,
+                             QScrollArea, QCheckBox, QStackedWidget, QListWidget)
 from PySide6.QtCore import Qt, QTimer, Slot, QThread, Signal, QSize
 from PySide6.QtGui import QFont, QPalette, QColor, QImage, QPixmap, QLinearGradient, QBrush
 
@@ -24,6 +24,11 @@ from insightface.app import FaceAnalysis
 import io
 from daemon.crypto_utils import encrypt_data
 from gui.ui.styles import GLOBAL_STYLE, SIDEBAR_COLOR, ACCENT_CYAN, GLASS_WHITE, ACCENT_TEAL, TEXT_SECONDARY, ERROR_RED, WARNING_GOLD
+
+# Import views
+from gui.ui.views.dashboard import DashboardView
+from gui.ui.views.enrollment import EnrollmentView
+from gui.ui.views.settings import SettingsView
 
 class StatusWorker(QThread):
     status_signal = Signal(bool)
@@ -159,7 +164,11 @@ class ScannerOverlay(QWidget):
         self.timer.start(30)
 
     def animate_scan(self):
-        self.scan_line_y = (self.scan_line_y + 5) % (self.parent().height() or 400)
+        h = self.height()
+        if h > 0:
+            self.scan_line_y = (self.scan_line_y + 5) % h
+        else:
+            self.scan_line_y = 0
         self.update()
 
     def paintEvent(self, event):
@@ -197,7 +206,7 @@ class ScannerOverlay(QWidget):
         painter.setPen(QPen(QColor(ACCENT_CYAN), 1))
         painter.drawLine(0, self.scan_line_y, w, self.scan_line_y)
 
-class LinuxHelloGUI(QMainWindow):
+class LinuxBonjourGUI(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Linux Bonjour")
@@ -263,234 +272,104 @@ class LinuxHelloGUI(QMainWindow):
         # Parent layout
         main_content = QWidget()
         main_layout = QHBoxLayout(main_content)
-        main_layout.setContentsMargins(20, 20, 20, 20)
-        main_layout.setSpacing(20)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
 
-        # ---------------- LEFT SIDE: Fixed Header & Scrollable Settings ----------------
-        left_side = QWidget()
-        left_side.setStyleSheet(f"background-color: {SIDEBAR_COLOR}; border-right: 1px solid {GLASS_WHITE};")
-        left_side_layout = QVBoxLayout(left_side)
-        left_side_layout.setContentsMargins(0, 0, 0, 0)
+        # 1. SIDEBAR
+        self.sidebar = QListWidget()
+        self.sidebar.setFixedWidth(250)
+        self.sidebar.setObjectName("sidebar")
+        self.sidebar.setSpacing(5)
+        self.sidebar.setContentsMargins(10, 20, 10, 20)
+        
+        # Sidebar Items
+        items = [
+            (" 🏠 DASHBOARD", "overview"),
+            (" 🤳 ENROLLMENT", "enroll"),
+            (" ⚙️ SETTINGS", "settings")
+        ]
+        for text, key in items:
+            item = QListWidgetItem(text)
+            item.setData(Qt.UserRole, key)
+            item.setSizeHint(QSize(0, 50))
+            self.sidebar.addItem(item)
+        
+        self.sidebar.currentRowChanged.connect(self.on_nav_changed)
+        main_layout.addWidget(self.sidebar)
 
-        header_container = QWidget()
-        header_hbox = QHBoxLayout(header_container)
-        header_hbox.setContentsMargins(20, 30, 20, 30)
+        # 2. MAIN CONTENT AREA
+        container = QWidget()
+        self.container_layout = QVBoxLayout(container)
+        self.container_layout.setContentsMargins(30, 30, 30, 30)
         
-        if os.path.exists(self.logo_path):
-            logo_label = QLabel()
-            logo_px = QPixmap(self.logo_path).scaled(45, 45, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            logo_label.setPixmap(logo_px)
-            header_hbox.addWidget(logo_label)
-            
-        header_vbox = QVBoxLayout()
-        header = QLabel("LINUX BONJOUR")
-        header.setFont(QFont("Inter", 18, QFont.Bold))
-        header.setStyleSheet(f"color: white; letter-spacing: 2px;")
-        header_vbox.addWidget(header)
-        
-        self.status_label = QLabel("● SYSTEM SECURED")
-        self.status_label.setStyleSheet(f"color: {ACCENT_CYAN}; font-weight: bold; font-size: 10px; letter-spacing: 1px;") # Typo fixed
-        header_vbox.addWidget(self.status_label)
-        header_hbox.addLayout(header_vbox)
-        header_hbox.addStretch()
-        
-        left_side_layout.addWidget(header_container)
-        
-        status_h = QHBoxLayout()
-        status_h.setContentsMargins(10, 0, 10, 10)
-        
-        self.start_daemon_btn = QPushButton(" Wake System")
-        self.start_daemon_btn.setObjectName("primaryBtn")
-        self.start_daemon_btn.setMinimumHeight(35)
-        self.start_daemon_btn.clicked.connect(self.on_start_daemon)
-        self.start_daemon_btn.hide()
-        status_h.addWidget(self.start_daemon_btn)
-        status_h.addStretch()
-        
-        left_side_layout.addLayout(status_h)
+        # Header in title area (Appears on all pages)
+        self.header_label = QLabel("LINUX BONJOUR")
+        self.header_label.setFont(QFont("Inter", 24, QFont.Bold))
+        self.header_label.setStyleSheet("color: white; margin-bottom: 20px;")
+        self.container_layout.addWidget(self.header_label)
 
-        # Scroll Area for the rest of the left side
-        left_scroll = QScrollArea()
-        left_scroll.setWidgetResizable(True)
-        left_scroll.setFrameShape(QFrame.NoFrame)
-        left_scroll.setStyleSheet("background: transparent;")
+        self.stack = QStackedWidget()
         
-        settings_container = QWidget()
-        settings_layout = QVBoxLayout(settings_container)
-        settings_layout.setContentsMargins(0, 0, 10, 0)
-        settings_layout.setSpacing(15)
+        # Initialize Views
+        self.dashboard_view = DashboardView()
+        self.enrollment_view = EnrollmentView()
+        self.settings_view = SettingsView()
         
-        # 1. System Integration Group
-        system_group = QGroupBox("SYSTEM SECURITY")
-        system_layout = QVBoxLayout()
-        system_layout.setSpacing(10)
+        self.stack.addWidget(self.dashboard_view)
+        self.stack.addWidget(self.enrollment_view)
+        self.stack.addWidget(self.settings_view)
         
-        self.pam_toggle = QCheckBox("GLOBAL FACE UNLOCK")
-        self.pam_toggle.setStyleSheet(f"font-weight: bold; color: {ACCENT_CYAN};")
-        self.pam_toggle.setMinimumHeight(40)
-        self.pam_toggle.stateChanged.connect(self.on_pam_toggle_changed)
-        system_layout.addWidget(self.pam_toggle)
+        self.container_layout.addWidget(self.stack)
+        main_layout.addWidget(container, 1)
         
-        # Indent sub-settings
-        granular_container = QWidget()
-        granular_layout = QVBoxLayout(granular_container)
-        granular_layout.setContentsMargins(30, 0, 0, 0)
-        granular_layout.setSpacing(10)
+        self.setCentralWidget(main_content)
         
-        self.login_toggle = QCheckBox("Lock Screen & Login")
-        self.login_toggle.stateChanged.connect(lambda s: self.on_granular_toggle_changed("login", s))
-        granular_layout.addWidget(self.login_toggle)
-        
-        self.sudo_toggle = QCheckBox("Sudo / Terminal Access")
-        self.sudo_toggle.stateChanged.connect(lambda s: self.on_granular_toggle_changed("sudo", s))
-        granular_layout.addWidget(self.sudo_toggle)
-        
-        self.polkit_toggle = QCheckBox("GUI Admin Requests (Polkit)")
-        self.polkit_toggle.stateChanged.connect(lambda s: self.on_granular_toggle_changed("polkit", s))
-        granular_layout.addWidget(self.polkit_toggle)
-        
-        system_layout.addWidget(granular_container)
-        system_group.setLayout(system_layout)
-        settings_layout.addWidget(system_group)
-
-        # 2. Tech Configuration
-        config_group = QGroupBox("RECOGNITION ENGINE")
-        config_layout = QVBoxLayout()
-        config_layout.setSpacing(15)
-        
-        config_layout.addWidget(QLabel("MATCH THRESHOLD"))
-        t_layout = QHBoxLayout()
-        self.t_slider = QSlider(Qt.Horizontal)
-        self.t_slider.setRange(0, 100)
-        self.t_slider.setValue(int(self.config.get("threshold", 0.45) * 100))
-        self.t_label = QLabel(f"{self.config.get('threshold', 0.45):.2f}")
-        self.t_label.setFixedWidth(40)
-        self.t_slider.valueChanged.connect(self.on_threshold_changed)
-        t_layout.addWidget(self.t_slider)
-        t_layout.addWidget(self.t_label)
-        config_layout.addLayout(t_layout)
-        
-        config_layout.addWidget(QLabel("AI MODEL SELECTION"))
-        self.m_combo = QComboBox()
-        self.m_combo.addItems(["buffalo_sc", "buffalo_s", "buffalo_l", "antelopev2"])
-        self.m_combo.setCurrentText(self.config.get("model_name", "buffalo_s"))
-        self.m_combo.currentIndexChanged.connect(self.on_model_selection_changed)
-        self.m_combo.setMinimumHeight(40)
-        config_layout.addWidget(self.m_combo)
-        
-        config_group.setLayout(config_layout)
-        settings_layout.addWidget(config_group)
-        
-        # 3. Hardware
-        hw_group = QGroupBox("HARDWARE INTERFACE")
-        hw_layout = QVBoxLayout()
-        hw_layout.setSpacing(10)
-        
-        hw_layout.addWidget(QLabel("CAMERA MODE"))
-        self.cam_type_combo = QComboBox()
-        self.cam_type_combo.addItems(["AUTO", "IR", "RGB"])
-        self.cam_type_combo.setCurrentText(self.config.get("camera_type", "AUTO"))
-        self.cam_type_combo.setMinimumHeight(40)
-        hw_layout.addWidget(self.cam_type_combo)
-        
-        hw_group.setLayout(hw_layout)
-        settings_layout.addWidget(hw_group)
-
-        # 4. Identity Management
-        user_group = QGroupBox("TRUSTED IDENTITIES")
-        user_layout = QVBoxLayout()
-        self.user_list = QListWidget()
-        self.user_list.setMinimumHeight(150)
-        self.refresh_users()
-        user_layout.addWidget(self.user_list)
-        
-        self.del_btn = QPushButton("REMOVE IDENTITY")
-        self.del_btn.setObjectName("dangerBtn")
-        self.del_btn.clicked.connect(self.delete_user)
-        user_layout.addWidget(self.del_btn)
-        user_group.setLayout(user_layout)
-        settings_layout.addWidget(user_group)
-
-        # Global Actions
-        actions_layout = QHBoxLayout()
-        self.reset_btn = QPushButton("RESTORE DEFAULTS")
-        self.reset_btn.clicked.connect(self.reset_settings)
-        self.apply_btn = QPushButton("SAVE CHANGES")
-        self.apply_btn.setObjectName("primaryBtn")
-        self.apply_btn.clicked.connect(self.apply_settings)
-        actions_layout.addWidget(self.reset_btn)
-        actions_layout.addWidget(self.apply_btn)
-        settings_layout.addLayout(actions_layout)
-        
-        left_scroll.setWidget(settings_container)
-        left_side_layout.addWidget(left_scroll)
-
-        # ---------------- RIGHT SIDE: Fixed Live Feed & Enrollment ----------------
-        right_panel = QWidget()
-        right_layout = QVBoxLayout(right_panel)
-        right_layout.setContentsMargins(0, 0, 0, 0)
-        
-        feed_group = QGroupBox("Security Monitor")
-        feed_layout = QVBoxLayout()
-        self.image_label = QLabel("SYSTEM STANDBY")
-        self.image_label.setAlignment(Qt.AlignCenter)
-        self.image_label.setMinimumSize(450, 350)
-        self.image_label.setStyleSheet(f"""
-            background-color: #000; 
-            border: 1px solid {GLASS_WHITE}; 
-            border-radius: 20px;
-            color: {TEXT_SECONDARY};
-            font-weight: bold;
-            letter-spacing: 2px;
-        """)
-        feed_layout.addWidget(self.image_label)
-        
-        # Overlay for Holographic Scanner
-        self.scanner_overlay = ScannerOverlay(self.image_label)
-        self.scanner_overlay.setGeometry(0, 0, 450, 350)
+        # Setup Overlay on the correct label
+        self.scanner_overlay = ScannerOverlay(self.dashboard_view.image_label)
         self.scanner_overlay.hide()
         
-        feed_group.setLayout(feed_layout)
-        right_layout.addWidget(feed_group)
+        # Connect View Signals
+        self.dashboard_view.start_daemon_requested.connect(self.on_start_daemon)
+        self.enrollment_view.enroll_signal.connect(self.toggle_video)
+        self.enrollment_view.save_signal.connect(self.save_identity)
+        self.enrollment_view.delete_signal.connect(self.delete_user)
+        self.settings_view.config_changed.connect(self.apply_settings_from_view)
+        self.settings_view.pam_toggle_requested.connect(self.on_pam_toggle_changed)
+        self.settings_view.granular_toggle_requested.connect(self.on_granular_toggle_changed)
+        self.settings_view.download_requested.connect(self.download_heavy_models)
+        self.settings_view.reset_requested.connect(self.reset_settings)
         
-        enroll_group = QGroupBox("USER ENROLLMENT")
-        enroll_layout = QVBoxLayout()
-        enroll_layout.setSpacing(15)
-        
-        self.u_input = QLineEdit()
-        self.u_input.setPlaceholderText("System Username")
-        import getpass
-        self.u_input.setText(getpass.getuser())
-        self.u_input.setMinimumHeight(45)
-        enroll_layout.addWidget(self.u_input)
-        
-        self.auto_capture_cb = QCheckBox("SMART AUTO-CAPTURE")
-        self.auto_capture_cb.setChecked(True)
-        self.auto_capture_cb.setStyleSheet(f"color: {ACCENT_CYAN}; font-size: 11px; font-weight: bold;")
-        enroll_layout.addWidget(self.auto_capture_cb)
+        # Initial Data Fill
+        self.sidebar.setCurrentRow(0)
+        self.refresh_users()
+        self.settings_view.update_ui_from_config(self.config)
 
-        self.enroll_btn = QPushButton(" ACTIVATE SCANNER")
-        self.enroll_btn.setMinimumHeight(50)
-        self.enroll_btn.clicked.connect(self.toggle_video)
-        enroll_layout.addWidget(self.enroll_btn)
+    def on_nav_changed(self, index):
+        self.stack.setCurrentIndex(index)
+        titles = ["DASHBOARD", "IDENTITY ENROLLMENT", "ADVANCED SETTINGS"]
+        self.header_label.setText(titles[index])
         
-        self.save_enroll_btn = QPushButton(" CAPTURE SIGNATURE")
-        self.save_enroll_btn.setObjectName("primaryBtn")
-        self.save_enroll_btn.setMinimumHeight(55)
-        self.save_enroll_btn.setEnabled(False)
-        self.save_enroll_btn.clicked.connect(self.save_identity)
-        enroll_layout.addWidget(self.save_enroll_btn)
-        
-        self.enroll_status = QLabel("SYSTEM IDLE")
-        self.enroll_status.setAlignment(Qt.AlignCenter)
-        self.enroll_status.setStyleSheet(f"color: {TEXT_SECONDARY}; padding: 10px; font-size: 11px; letter-spacing: 1px;")
-        enroll_layout.addWidget(self.enroll_status)
-        enroll_group.setLayout(enroll_layout)
-        right_layout.addWidget(enroll_group)
-        
-        main_layout.addWidget(left_side, 3)
-        main_layout.addWidget(right_panel, 5)
-        self.setCentralWidget(main_content)
+        # Reparent overlay to the active image label
+        if index == 0: # Dashboard
+            self.scanner_overlay.setParent(self.dashboard_view.image_label)
+            self.scanner_overlay.show() if self.video_thread and self.video_thread.isRunning() else self.scanner_overlay.hide()
+        elif index == 1: # Enrollment
+            self.scanner_overlay.setParent(self.enrollment_view.image_label)
+            self.scanner_overlay.show() if self.video_thread and self.video_thread.isRunning() else self.scanner_overlay.hide()
+        else:
+            self.scanner_overlay.hide()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.sync_overlay_size()
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_F11:
+            if self.isFullScreen():
+                self.showNormal()
+            else:
+                self.showFullScreen()
+        super().keyPressEvent(event)
 
     def start_status_monitoring(self):
         self.status_thread = StatusWorker()
@@ -500,26 +379,23 @@ class LinuxHelloGUI(QMainWindow):
         self.status_thread.start()
 
     def update_status_label(self, active):
-        self.status_label.setText(f"● Daemon: {'ACTIVE' if active else 'STOPPED'}")
+        self.dashboard_view.update_status(active)
+        # Update small status in main header too
         color = "#03dac6" if active else "#f04747"
-        self.status_label.setStyleSheet(f"color: {color}; font-weight: bold; font-size: 11px;")
-        
-        # Toggle button visibility
-        if active:
-            self.start_daemon_btn.hide()
-        else:
-            self.start_daemon_btn.show()
+        # Since I replaced status_label with header_label in setup_ui, 
+        # I'll just skip the small label for now or re-add it if needed.
+        pass
 
     @Slot(bool)
     def update_pam_toggle(self, enabled):
         if not self.pam_updating and enabled != self.last_known_pam_state:
             self.last_known_pam_state = enabled
-            self.pam_toggle.blockSignals(True)
-            self.pam_toggle.setChecked(enabled)
-            self.pam_toggle.blockSignals(False)
+            self.settings_view.pam_toggle.blockSignals(True)
+            self.settings_view.pam_toggle.setChecked(enabled)
+            self.settings_view.pam_toggle.blockSignals(False)
             
             # If global is enabled, granular ones should be checked and disabled
-            for toggle in [self.login_toggle, self.sudo_toggle, self.polkit_toggle]:
+            for toggle in [self.settings_view.login_toggle, self.settings_view.sudo_toggle, self.settings_view.polkit_toggle]:
                 toggle.blockSignals(True)
                 if enabled: toggle.setChecked(True)
                 toggle.setEnabled(not enabled)
@@ -530,17 +406,17 @@ class LinuxHelloGUI(QMainWindow):
         if self.pam_updating or self.last_known_pam_state: # Skip if global is active or updating
             return
         
-        self.login_toggle.blockSignals(True)
-        self.login_toggle.setChecked(granular.get("login", False))
-        self.login_toggle.blockSignals(False)
+        self.settings_view.login_toggle.blockSignals(True)
+        self.settings_view.login_toggle.setChecked(granular.get("login", False))
+        self.settings_view.login_toggle.blockSignals(False)
         
-        self.sudo_toggle.blockSignals(True)
-        self.sudo_toggle.setChecked(granular.get("sudo", False))
-        self.sudo_toggle.blockSignals(False)
+        self.settings_view.sudo_toggle.blockSignals(True)
+        self.settings_view.sudo_toggle.setChecked(granular.get("sudo", False))
+        self.settings_view.sudo_toggle.blockSignals(False)
         
-        self.polkit_toggle.blockSignals(True)
-        self.polkit_toggle.setChecked(granular.get("polkit", False))
-        self.polkit_toggle.blockSignals(False)
+        self.settings_view.polkit_toggle.blockSignals(True)
+        self.settings_view.polkit_toggle.setChecked(granular.get("polkit", False))
+        self.settings_view.polkit_toggle.blockSignals(False)
 
     def refresh_pam_status(self):
         # Manually trigger a status check if needed
@@ -565,9 +441,9 @@ class LinuxHelloGUI(QMainWindow):
         if current_bool:
             if not self.has_face_data():
                 QMessageBox.critical(self, "No Face Data", "Cannot enable face unlock without any enrolled identities.\nPlease enroll at least one face profile first.")
-                self.pam_toggle.blockSignals(True)
-                self.pam_toggle.setChecked(False)
-                self.pam_toggle.blockSignals(False)
+                self.settings_view.pam_toggle.blockSignals(True)
+                self.settings_view.pam_toggle.setChecked(False)
+                self.settings_view.pam_toggle.blockSignals(False)
                 return
 
         self.pam_updating = True
@@ -578,7 +454,7 @@ class LinuxHelloGUI(QMainWindow):
             self.last_known_pam_state = current_bool
             
             # Disable granular toggles if global is ON to show it overrides them
-            for toggle in [self.login_toggle, self.sudo_toggle, self.polkit_toggle]:
+            for toggle in [self.settings_view.login_toggle, self.settings_view.sudo_toggle, self.settings_view.polkit_toggle]:
                 toggle.blockSignals(True)
                 toggle.setChecked(current_bool)
                 toggle.setEnabled(not current_bool)
@@ -587,9 +463,9 @@ class LinuxHelloGUI(QMainWindow):
             self.statusBar().showMessage(f"Global Security {'Enabled' if current_bool else 'Disabled'}", 3000)
         except Exception as e:
             QMessageBox.critical(self, "Elevation Failed", f"Could not update system security settings: {e}")
-            self.pam_toggle.blockSignals(True)
-            self.pam_toggle.setChecked(not current_bool)
-            self.pam_toggle.blockSignals(False)
+            self.settings_view.pam_toggle.blockSignals(True)
+            self.settings_view.pam_toggle.setChecked(not current_bool)
+            self.settings_view.pam_toggle.blockSignals(False)
         finally:
             self.pam_updating = False
 
@@ -617,76 +493,81 @@ class LinuxHelloGUI(QMainWindow):
 
     def on_start_daemon(self):
         try:
-            self.statusBar().showMessage("Starting Daemon...", 5000)
+            self.statusBar().showMessage("Attempting to start daemon...", 5000)
             # Start and ENABLE for persistence
-            subprocess.run(["pkexec", "systemctl", "enable", "--now", "linux-bonjour"], check=True)
-            self.statusBar().showMessage("Daemon Started and Enabled! 🎉", 3000)
+            res = subprocess.run(["pkexec", "systemctl", "enable", "--now", "linux-bonjour"], 
+                                 capture_output=True, text=True)
+            if res.returncode == 0:
+                self.statusBar().showMessage("Daemon Started and Enabled! 🎉", 3000)
+                QMessageBox.information(self, "Service Started", "The Linux Bonjour background service is now active and set to start automatically on boot.")
+            else:
+                raise subprocess.CalledProcessError(res.returncode, res.args, res.stdout, res.stderr)
         except Exception as e:
-            QMessageBox.critical(self, "Service Error", f"Failed to start daemon: {e}")
+            err_msg = str(e)
+            if "polkit" in err_msg.lower() or "not authorized" in err_msg.lower():
+                QMessageBox.warning(self, "Authorization Denied", "Action cancelled by user or lack of permissions.")
+            else:
+                QMessageBox.critical(self, "Service Error", 
+                                     f"Failed to start daemon: {err_msg}\n\n"
+                                     "Troubleshooting:\n"
+                                     "1. Check if the package is correctly installed.\n"
+                                     "2. Run 'systemctl status linux-bonjour' in terminal.\n"
+                                     "3. Ensure your hardware (camera) is connected.")
             self.statusBar().showMessage("Start Failed ❌", 5000)
 
     def on_threshold_changed(self, value):
-        self.t_label.setText(f"{value/100:.2f}")
+        self.settings_view.t_label.setText(f"{value/100:.2f}")
 
     def reset_settings(self):
         self.load_config()
-        self.t_slider.setValue(int(self.config.get("threshold", 0.45) * 100))
-        self.m_combo.setCurrentText(self.config.get("model_name", "buffalo_s"))
-        self.c_spin.setValue(self.config.get("cooldown_time", 60))
-        self.f_spin.setValue(self.config.get("max_failures", 5))
-        idx = self.config.get("camera_index")
-        self.cam_idx_spin.setValue(-1 if idx is None else idx)
-        self.cam_type_combo.setCurrentText(self.config.get("camera_type", "AUTO"))
+        self.settings_view.update_ui_from_config(self.config)
+        self.statusBar().showMessage("Settings Reset to Defaults", 3000)
 
-    def apply_settings(self):
-        new_model = self.m_combo.currentText()
+    def apply_settings_from_view(self, new_config):
+        new_model = new_config.get("model_name")
         old_model = self.config.get("model_name", "buffalo_s")
 
         if new_model != old_model:
             reply = QMessageBox.warning(self, "Model Switch Warning", 
                                        f"You are switching the AI engine from '{old_model}' to '{new_model}'.\n\n"
                                        "IMPORTANT: Face signatures are model-specific. Your existing face profiles "
-                                       "will NOT work with the new model and you will need to re-enroll them.\n\n"
-                                       "Do you want to proceed with the switch?",
+                                       "will NOT work with the new model.\n\n"
+                                       "Do you want to proceed?",
                                        QMessageBox.Yes | QMessageBox.No)
             if reply == QMessageBox.No:
-                self.m_combo.setCurrentText(old_model)
+                self.settings_view.m_combo.setCurrentText(old_model)
                 return
 
-        self.config["threshold"] = self.t_slider.value() / 100
-        self.config["model_name"] = new_model
-        self.config["cooldown_time"] = self.c_spin.value()
-        self.config["max_failures"] = self.f_spin.value()
-        idx = self.cam_idx_spin.value()
-        self.config["camera_index"] = None if idx == -1 else idx
-        self.config["camera_type"] = self.cam_type_combo.currentText()
-        self.config["global_unlock"] = self.global_unlock_cb.isChecked()
-        self.config["logging_enabled"] = self.logging_cb.isChecked()
-        self.config["search_duration"] = self.d_slider.value()
+        # Range checks for config
+        t = new_config.get("threshold", 0.45)
+        if not (0.1 <= t <= 0.95):
+            QMessageBox.warning(self, "Invalid Setting", f"Threshold {t:.2f} is out of safe range (0.10 - 0.95).")
+            return
+
+        self.config.update(new_config)
         self.save_config()
-        self.statusBar().showMessage("Settings applied successfully! ✨", 3000)
+        self.statusBar().showMessage("Configuration Applied! ✨", 3000)
+        QMessageBox.information(self, "Settings Saved", "System configuration has been successfully updated and applied.")
 
     def on_model_selection_changed(self, index):
         self.update_model_download_button_visibility()
 
     def update_model_download_button_visibility(self):
-        model_name = self.m_combo.currentText()
+        model_name = self.settings_view.m_combo.currentText()
         models_dir = "/usr/share/linux-bonjour/models/models"
         model_path = os.path.join(models_dir, model_name)
         
-        # Models that are NOT downloaded by default (buffalo_sc and buffalo_s are now defaults)
         heavy_models = ["buffalo_l", "antelopev2"]
         
         if model_name in heavy_models and not os.path.exists(model_path):
-            self.download_models_btn.show()
-            self.download_models_btn.setText(f"☁️ Download {model_name} (High Precision)")
+            self.settings_view.download_btn.show()
+            self.settings_view.download_btn.setText(f"☁️ Download {model_name}")
         else:
-            self.download_models_btn.hide()
+            self.settings_view.download_btn.hide()
 
-    def download_heavy_models(self):
-        model_name = self.m_combo.currentText()
-        self.download_models_btn.setEnabled(False)
-        self.download_models_btn.setText("⏳ Downloading Model... Please Wait")
+    def download_heavy_models(self, model_name):
+        self.settings_view.download_btn.setEnabled(False)
+        self.settings_view.download_btn.setText("⏳ Downloading...")
         
         self.download_worker = ModelDownloadWorker([model_name])
         self.download_worker.finished.connect(self.on_download_finished)
@@ -694,7 +575,7 @@ class LinuxHelloGUI(QMainWindow):
         self.download_worker.start()
 
     def on_download_finished(self, success, message):
-        self.download_models_btn.setEnabled(True)
+        self.settings_view.download_btn.setEnabled(True)
         self.update_model_download_button_visibility()
         if success:
             QMessageBox.information(self, "Download Complete", message)
@@ -704,26 +585,19 @@ class LinuxHelloGUI(QMainWindow):
             self.statusBar().showMessage(message, 5000)
         
     def refresh_users(self):
-        self.user_list.clear()
         users_dir = os.path.join(PROJECT_ROOT, self.config.get("users_dir", "config/users"))
+        users = set()
         if os.path.exists(users_dir):
             try:
-                # Show both .npy and .enc, but only unique names
                 files = os.listdir(users_dir)
-                users = set()
                 for f in files:
                     if f.endswith(".npy") or f.endswith(".enc"):
                         users.add(f.rsplit(".", 1)[0])
-                
-                for user in sorted(list(users)):
-                    item = QListWidgetItem(user)
-                    self.user_list.addItem(item)
             except: pass
+        self.enrollment_view.update_user_list(users)
 
-    def delete_user(self):
-        item = self.user_list.currentItem()
-        if not item: return
-        username = item.text()
+    def delete_user(self, username):
+        if not username: return
         if QMessageBox.question(self, 'Delete', f"Delete {username}?") == QMessageBox.Yes:
             path_enc = os.path.join(PROJECT_ROOT, self.config.get("users_dir", "config/users"), f"{username}.enc")
             path_npy = os.path.join(PROJECT_ROOT, self.config.get("users_dir", "config/users"), f"{username}.npy")
@@ -738,6 +612,7 @@ class LinuxHelloGUI(QMainWindow):
                 
             if deleted:
                 self.refresh_users()
+                self.statusBar().showMessage(f"Identity '{username}' Removed", 3000)
 
     @Slot()
     def toggle_video(self):
@@ -747,8 +622,8 @@ class LinuxHelloGUI(QMainWindow):
             self.start_video()
 
     def start_video(self):
-        self.enroll_status.setText("Initializing...")
-        self.enroll_btn.setText("Stop Feed")
+        self.enrollment_view.status_label.setText("Initializing Scanner...")
+        self.enrollment_view.set_enrolling(True)
         self.scanner_overlay.show()
         self.video_thread = VideoThread(self.config)
         self.video_thread.change_pixmap_signal.connect(self.update_image)
@@ -758,91 +633,118 @@ class LinuxHelloGUI(QMainWindow):
     def stop_video(self):
         if self.video_thread: self.video_thread.stop()
         self.scanner_overlay.hide()
-        self.image_label.setText("System Standby")
-        self.image_label.setPixmap(QPixmap())
-        self.enroll_btn.setText("Start Feed")
-        self.enroll_status.setText("Standby")
-        self.save_enroll_btn.setEnabled(False)
+        # Reset labels
+        self.dashboard_view.image_label.setText("SYSTEM STANDBY")
+        self.dashboard_view.image_label.setPixmap(QPixmap())
+        self.enrollment_view.set_enrolling(False)
 
     @Slot(QImage)
-    def update_image(self, q_img):
-        pixmap = QPixmap.fromImage(q_img)
-        target_size = self.image_label.size()
-        self.image_label.setPixmap(pixmap.scaled(target_size, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-        self.scanner_overlay.resize(target_size) # Keep overlay synced
+    def update_image(self, qt_img):
+        if self.video_thread is None: return
+        
+        pixmap = QPixmap.fromImage(qt_img)
+        
+        # Update Dashboard (Large Feed)
+        label_dash = self.dashboard_view.image_label
+        size_dash = label_dash.size()
+        if not size_dash.isEmpty():
+            scaled = pixmap.scaled(size_dash, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            label_dash.setPixmap(scaled)
+            self.scanner_overlay.resize(size_dash)
+        
+        # Update Enrollment (Small Preview)
+        label_enroll = self.enrollment_view.image_label
+        size_enroll = label_enroll.size()
+        if not size_enroll.isEmpty():
+            scaled = pixmap.scaled(size_enroll, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            label_enroll.setPixmap(scaled)
 
     @Slot(bool, object)
     def on_face_detected(self, detected, face_obj):
         now = time.time()
+        view = self.enrollment_view
         
         if detected and face_obj is not None:
             self.current_face_embedding = face_obj.normed_embedding
-            self.save_enroll_btn.setEnabled(True)
-            self.face_lost_time = None # Reset lost timer
+            view.save_btn.setEnabled(True)
+            self.face_lost_time = None 
             
-            if self.auto_capture_cb.isChecked():
-                # Check for username BEFORE starting timer to prevent loop
-                if not self.u_input.text().strip():
-                    self.enroll_status.setText("<font color='#ffa000'><b>ENTER USERNAME TO START</b></font>")
+            if view.auto_capture_cb.isChecked():
+                username = view.u_input.text().strip()
+                if not username:
+                    view.status_label.setText("<font color='#ffa000'><b>ENTER USERNAME TO START</b></font>")
                     self.face_detect_start_time = None
                     return
                 
                 if self.face_detect_start_time is None:
-                    print(f"[DEBUG] Auto-capture timer started at {now}")
                     self.face_detect_start_time = now
                 
                 elapsed = now - self.face_detect_start_time
                 remaining = max(0, self.capture_delay - elapsed)
                 
                 if remaining > 0:
-                    self.enroll_status.setText(f"<font color='#00b0f4' size='5'><b>LOCKING ON... {remaining:.1f}s</b></font><br><font color='#888888'>(or click button below to skip)</font>")
+                    view.status_label.setText(f"<font color='#00b0f4' size='5'><b>LOCKING ON... {remaining:.1f}s</b></font>")
                 else:
-                    print(f"[DEBUG] Auto-capture triggered!")
-                    self.enroll_status.setText(f"<font color='{ACCENT_TEAL}' size='5'><b>SIGNATURE CAPTURED!</b></font>")
-                    # We don't reset face_detect_start_time here yet to prevent instant re-trigger
-                    if self.save_identity():
+                    view.status_label.setText(f"<font color='{ACCENT_TEAL}' size='5'><b>SIGNATURE CAPTURED!</b></font>")
+                    if self.save_identity(username):
                         self.face_detect_start_time = None
                     else:
-                        # If save failed/cancelled, reset timer so user can try again by looking away/back
                         self.face_detect_start_time = None
             else:
-                self.enroll_status.setText(f"<font color='{ACCENT_TEAL}' size='4'><b>FACE READY</b></font><br><font color='{TEXT_SECONDARY}'>Click 'Capture Signature'</font>")
+                view.status_label.setText(f"<font color='{ACCENT_TEAL}' size='4'><b>FACE READY</b></font>")
         else:
-            # Face lost - check grace period
             if self.face_detect_start_time is not None:
                 if self.face_lost_time is None:
-                    self.face_lost_time = now
-                    print("[DEBUG] Face lost, starting grace period...")
+                    self.face_lost_time = time.time()
                 
-                lost_for = now - self.face_lost_time
-                if lost_for > self.grace_period:
-                    print(f"[DEBUG] Grace period expired ({lost_for:.1f}s), resetting timer.")
-                    self.enroll_status.setText(f"<font color='{ERROR_RED}'>SEARCHING FOR FACE...</font>")
-                    self.save_enroll_btn.setEnabled(False)
+                if time.time() - self.face_lost_time > self.grace_period:
                     self.face_detect_start_time = None
                     self.face_lost_time = None
-                else:
-                    self.enroll_status.setText(f"<font color='{WARNING_GOLD}'><b>STAND STILL (RESCANNING...)</b></font>")
+                    view.status_label.setText("FACE LOST - RESETTING...")
+                    view.status_label.setStyleSheet(f"color: {TEXT_SECONDARY};")
             else:
-                self.enroll_status.setText(f"<font color='{TEXT_SECONDARY}'>POSITION FACE IN FRAME</font>")
-                self.save_enroll_btn.setEnabled(False)
+                view.status_label.setText("POSITION YOUR FACE IN THE CENTER")
+                view.status_label.setStyleSheet(f"color: {TEXT_SECONDARY};")
+            
+            view.save_btn.setEnabled(False)
+            self.current_face_embedding = None
 
-    def save_identity(self):
+    def save_identity(self, username=None):
         if self.is_saving: return False
         self.is_saving = True
         
-        username = self.u_input.text().strip()
+        view = self.enrollment_view
+        if username is None:
+            username = view.u_input.text().strip()
+            
         if not username:
             QMessageBox.warning(self, "Validation Error", "Please enter a username.")
             self.is_saving = False
             return False
 
-        # Sanitize username (alphanumeric, underscores, hyphens)
+        # Sanitize username (Linux standard: lowercase, starts with letter/underscore)
         import re
-        if not re.match(r"^[a-zA-Z0-9_-]+$", username):
-            QMessageBox.warning(self, "Validation Error", "Username contains illegal characters.\nOnly alphanumeric, underscores, and hyphens are allowed.")
+        if not re.match(r"^[a-z_][a-z0-9_-]*$", username):
+            QMessageBox.warning(self, "Invalid Username", 
+                                "Username must start with a lowercase letter or underscore, "
+                                "and only contain lowercase letters, numbers, underscores, or hyphens.")
             self.is_saving = False
             return False
+        
+        if len(username) > 32:
+            QMessageBox.warning(self, "Invalid Username", "Username is too long (max 32 characters).")
+            self.is_saving = False
+            return False
+
+        # System User Verification
+        if not view.check_system_user(username):
+            reply = QMessageBox.question(self, "User Not Found", 
+                                       f"The user '{username}' does not appear to exist on this system.\n\n"
+                                       "Do you want to create an identity for this name anyway?",
+                                       QMessageBox.Yes | QMessageBox.No)
+            if reply == QMessageBox.No:
+                self.is_saving = False
+                return False
 
         if self.current_face_embedding is None:
             QMessageBox.warning(self, "No Face Detected", "Please start the live capture and look at the camera first.")
@@ -880,8 +782,9 @@ class LinuxHelloGUI(QMainWindow):
                 
             self.refresh_users()
             self.stop_video()
-            self.u_input.clear()
+            view.u_input.clear()
             self.statusBar().showMessage(f"Identity '{username}' saved successfully! ✅", 3000)
+            QMessageBox.information(self, "Enrollment Success", f"Face signature for '{username}' has been securely encrypted and saved.")
             self.is_saving = False
             return True
         except Exception as e:
@@ -910,6 +813,6 @@ if __name__ == "__main__":
     app.setPalette(palette)
     
     app.setFont(QFont("Inter", 10))
-    window = LinuxHelloGUI()
+    window = LinuxBonjourGUI()
     window.show()
     sys.exit(app.exec())
