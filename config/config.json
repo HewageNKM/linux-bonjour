@@ -1,5 +1,5 @@
 {
-    "socket_path": "/run/linux-hello.sock",
+    "socket_path": "/run/linux-bonjour.sock",
     "model_name": "buffalo_l",
     "threshold": 0.7,
     "users_dir": "config/users",

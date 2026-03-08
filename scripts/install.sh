@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# linux-hello Installer Script
+# linux-bonjour Installer Script
 set -e
 
 # Auto-detect project directory
@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 PAM_CONFIG="/etc/pam.d/common-auth"
 
-echo "Starting linux-hello installation from $PROJECT_DIR..."
+echo "Starting linux-bonjour installation from $PROJECT_DIR..."
 
 # 1. Install System Dependencies
 echo "Installing system dependencies..."
@@ -47,7 +47,7 @@ echo "Initializing models..."
 
 # 6. Configure Systemd Services
 echo "Configuring systemd services..."
-sudo cp "$PROJECT_DIR/config/linux-hello.service" /etc/systemd/system/
+sudo cp "$PROJECT_DIR/config/linux-bonjour.service" /etc/systemd/system/
 sudo systemctl daemon-reload
 
 # Fix permissions for the config directory so the user can enroll faces
@@ -56,10 +56,10 @@ sudo chown -R $REAL_USER:$REAL_USER "$PROJECT_DIR/config"
 
 # 7. Create Native GUI Desktop Entry
 echo "Creating desktop entry for Native Management GUI..."
-DESKTOP_FILE="/usr/share/applications/linux-hello-gui.desktop"
+DESKTOP_FILE="/usr/share/applications/linux-bonjour-gui.desktop"
 cat <<EOF | sudo tee $DESKTOP_FILE > /dev/null
 [Desktop Entry]
-Name=Linux Hello
+Name=Linux Bonjour
 Comment=Manage face recognition settings and users
 Exec=$PROJECT_DIR/venv/bin/python $PROJECT_DIR/src/gui/gui_app.py
 Icon=$PROJECT_DIR/src/gui/assets/logo.png
@@ -70,16 +70,16 @@ EOF
 sudo chmod +x $DESKTOP_FILE
 
 echo "Enabling services..."
-sudo systemctl enable linux-hello || true
+sudo systemctl enable linux-bonjour || true
 
 echo "Starting services..."
-sudo systemctl restart linux-hello || true
+sudo systemctl restart linux-bonjour || true
 
 echo "------------------------------------------------"
 echo "Installation complete! 🎉"
 echo ""
 echo "Next Steps to Zero-Setup:"
-echo "1. Enroll your face in the GUI: 'Linux Hello' in your menu"
+echo "1. Enroll your face in the GUI: 'Linux Bonjour' in your menu"
 echo "2. Enable System-wide Face Recognition (Login & Lock Screen):"
 echo "   sudo ./scripts/setup_pam.sh --enable-all"
 echo ""

@@ -1,9 +1,9 @@
 #!/bin/bash
 
-# Linux Hello PAM Manager
+# Linux Bonjour PAM Manager
 # Safely toggle face recognition for system authentication.
 
-PAM_MODULE="pam_hello.so"
+PAM_MODULE="pam_bonjour.so"
 COMMON_AUTH="/etc/pam.d/common-auth"
 GDM_AUTH="/etc/pam.d/gdm-password"
 SDDM_AUTH="/etc/pam.d/sddm"
@@ -51,7 +51,7 @@ disable_service() {
 }
 
 check_status() {
-    echo "--- Linux Hello PAM Status ---"
+    echo "--- Linux Bonjour PAM Status ---"
     for f in "$COMMON_AUTH" "$GDM_AUTH" "$SDDM_AUTH"; do
         if [ -f "$f" ]; then
             # Read-only check, usually doesn't need root if files are world-readable (common on many distros)

@@ -5,7 +5,7 @@ use std::os::unix::net::UnixStream;
 use std::time::Duration;
 use std::ptr;
 
-const SOCKET_PATH: &str = "/run/linux-hello.sock";
+const SOCKET_PATH: &str = "/run/linux-bonjour.sock";
 
 #[no_mangle]
 pub unsafe extern "C" fn pam_sm_authenticate(

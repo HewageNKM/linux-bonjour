@@ -1,6 +1,6 @@
-# <img src="src/gui/assets/logo.png" width="48" height="48"> Linux Hello: Windows Hello for Linux 🛡️🤳
+# <img src="src/gui/assets/logo.png" width="48" height="48"> Linux Bonjour: Windows Hello for Linux 🛡️🤳
 
-`Linux Hello` is a secure, light-weight, and professional face-recognition authentication system for Linux. It provides a seamless login and `sudo` experience using IR or RGB cameras, powered by a memory-safe Rust PAM module and a high-performance Python AI daemon with a premium PySide6 management console.
+`Linux Bonjour` is a secure, light-weight, and professional face-recognition authentication system for Linux. It provides a seamless login and `sudo` experience using IR or RGB cameras, powered by a memory-safe Rust PAM module and a high-performance Python AI daemon with a premium PySide6 management console.
 
 ---
 
@@ -29,7 +29,7 @@
 
 ### 📦 Professional Package (.deb)
 
-The fastest and most common way to install Linux Hello on Debian-based systems (Ubuntu, Zorin, etc).
+The fastest and most common way to install Linux Bonjour on Debian-based systems (Ubuntu, Zorin, etc).
 
 1.  **Build or Download the package**:
     ```bash
@@ -38,9 +38,9 @@ The fastest and most common way to install Linux Hello on Debian-based systems (
 2.  **Install with automatic dependency handling**:
     ```bash
     sudo apt update
-    sudo apt install ./linux-hello_1.0.0_amd64.deb
+    sudo apt install ./linux-bonjour_1.0.0_amd64.deb
     ```
-    *Note: If you have a previous broken version, run `sudo dpkg --purge linux-hello` first.*
+    *Note: If you have a previous broken version, run `sudo dpkg --purge linux-bonjour` first.*
 
 ---
 
@@ -48,10 +48,10 @@ The fastest and most common way to install Linux Hello on Debian-based systems (
 
 ### 1. Launch Management Console
 
-Find **"Linux Hello"** in your application menu, or run the global command:
+Find **"Linux Bonjour"** in your application menu, or run the global command:
 
 ```bash
-linux-hello
+linux-bonjour
 ```
 
 Use the **"Dashboard"** to monitor daemon status and system security. The **"New Enrollment"** section allows you to capture your identity with live AI feedback.
@@ -63,7 +63,7 @@ Enable/disable biometric security for your **Login, Sudo, and Lock Screen** dire
 ```bash
 # GUI Method: Toggle the "Enable Face Unlock" checkbox (requires password)
 # Terminal Method:
-sudo /usr/share/linux-hello/scripts/setup_pam.sh --enable-all
+sudo /usr/share/linux-bonjour/scripts/setup_pam.sh --enable-all
 ```
 
 ---

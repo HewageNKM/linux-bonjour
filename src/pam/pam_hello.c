@@ -7,7 +7,7 @@
 #include <security/pam_ext.h>
 #include <sys/time.h>
 
-#define SOCKET_PATH "/run/linux-hello.sock"
+#define SOCKET_PATH "/run/linux-bonjour.sock"
 
 PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc, const char **argv) {
     int sock = 0;

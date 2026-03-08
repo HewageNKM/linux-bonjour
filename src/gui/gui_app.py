@@ -33,7 +33,7 @@ class StatusWorker(QThread):
         while self._run_flag:
             try:
                 # Daemon status
-                res = subprocess.run(["systemctl", "is-active", "linux-hello"], 
+                res = subprocess.run(["systemctl", "is-active", "linux-bonjour"], 
                                    capture_output=True, text=True, timeout=2)
                 active = res.stdout.strip() == "active"
                 self.status_signal.emit(active)
@@ -105,13 +105,13 @@ class VideoThread(QThread):
 class LinuxHelloGUI(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Linux Hello")
+        self.setWindowTitle("Linux Bonjour")
         self.setMinimumSize(1000, 750)
         
         # Set Window Icon
         logo_path = os.path.join(PROJECT_ROOT, "src", "gui", "assets", "logo.png")
         if not os.path.exists(logo_path): # Fallback for installed package
-            logo_path = "/usr/share/linux-hello/logo.png"
+            logo_path = "/usr/share/linux-bonjour/logo.png"
         
         if os.path.exists(logo_path):
             self.setWindowIcon(QPixmap(logo_path))
@@ -175,7 +175,7 @@ class LinuxHelloGUI(QMainWindow):
             logo_label.setPixmap(logo_px)
             header_hbox.addWidget(logo_label)
             
-        header = QLabel("Linux Hello")
+        header = QLabel("Linux Bonjour")
         header.setFont(QFont("Outfit", 26, QFont.Bold))
         header_hbox.addWidget(header)
         header_hbox.addStretch()

@@ -1,10 +1,10 @@
 [package]
-name = "pam-hello"
+name = "pam-bonjour"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "pam_hello"
+name = "pam_bonjour"
 crate-type = ["cdylib"]
 
 [dependencies]
