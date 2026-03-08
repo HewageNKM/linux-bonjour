@@ -1,5 +1,6 @@
 import sys
 import os
+import time
 import json
 import psutil
 import subprocess
@@ -604,7 +605,7 @@ class LinuxHelloGUI(QMainWindow):
         # Safety Guard: Check for face data before enabling
         if current_bool:
             users_dir = os.path.join(PROJECT_ROOT, self.config.get("users_dir", "config/users"))
-            if not os.path.exists(users_dir) or not any(f.endswith(".npy") for f in os.listdir(users_dir)):
+            if not os.path.exists(users_dir) or not any(f.endswith(".npy") or f.endswith(".enc") for f in os.listdir(users_dir)):
                 QMessageBox.critical(self, "No Face Data", "Cannot enable face unlock without any enrolled identities.\nPlease enroll at least one face profile first.")
                 self.pam_toggle.blockSignals(True)
                 self.pam_toggle.setChecked(False)
