@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QListWidgetItem, QMessageBox, QFrame, QComboBox,
                              QScrollArea, QCheckBox)
 from PySide6.QtCore import Qt, QTimer, Slot, QThread, Signal, QSize
-from PySide6.QtGui import QFont, QPalette, QColor, QImage, QPixmap
+from PySide6.QtGui import QFont, QPalette, QColor, QImage, QPixmap, QLinearGradient, QBrush
 
 # Add project root to path for imports
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -20,6 +20,8 @@ sys.path.append(os.path.join(PROJECT_ROOT, "src"))
 from daemon.camera import IRCamera
 from daemon.sys_info import get_system_specs, suggest_model
 from insightface.app import FaceAnalysis
+import io
+from daemon.crypto_utils import encrypt_data
 
 class StatusWorker(QThread):
     status_signal = Signal(bool)
@@ -102,6 +104,50 @@ class VideoThread(QThread):
         self._run_flag = False
         self.wait()
 
+class ScannerOverlay(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.scan_line_y = 0
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.animate_scan)
+        self.timer.start(30)
+
+    def animate_scan(self):
+        self.scan_line_y = (self.scan_line_y + 5) % (self.parent().height() or 400)
+        self.update()
+
+    def paintEvent(self, event):
+        from PySide6.QtGui import QPainter, QPen, QColor, QRadialGradient
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        
+        # Corner brackets
+        w, h = self.width(), self.height()
+        pen = QPen(QColor(0, 176, 244, 180), 3)
+        painter.setPen(pen)
+        
+        length = 40
+        # Top Left
+        painter.drawLine(10, 10, 10 + length, 10)
+        painter.drawLine(10, 10, 10, 10 + length)
+        # Top Right
+        painter.drawLine(w - 10, 10, w - 10 - length, 10)
+        painter.drawLine(w - 10, 10, w - 10, 10 + length)
+        # Bottom Left
+        painter.drawLine(10, h - 10, 10 + length, h - 10)
+        painter.drawLine(10, h - 10, 10, h - 10 - length)
+        # Bottom Right
+        painter.drawLine(w - 10, h - 10, w - 10 - length, h - 10)
+        painter.drawLine(w - 10, h - 10, w - 10, h - 10 - length)
+
+        # Scanning line
+        grad = QLinearGradient(0, self.scan_line_y - 10, 0, self.scan_line_y + 10)
+        grad.setColorAt(0, QColor(0, 176, 244, 0))
+        grad.setColorAt(0.5, QColor(0, 176, 244, 150))
+        grad.setColorAt(1, QColor(0, 176, 244, 0))
+        painter.fillRect(0, self.scan_line_y - 10, w, 20, grad)
+
 class LinuxHelloGUI(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -125,8 +171,146 @@ class LinuxHelloGUI(QMainWindow):
         self.pam_updating = False
         self.last_known_pam_state = None # To prevent loops
         
+        # Auto-capture state
+        self.auto_capture_enabled = True # Default to ON for better UX
+        self.face_detect_start_time = None
+        self.capture_delay = 1.5 # seconds
+        
+        self.apply_theme()
         self.setup_ui()
         self.start_status_monitoring()
+
+    def apply_theme(self):
+        self.setStyleSheet("""
+            QMainWindow {
+                background-color: #0c0d10;
+            }
+            QWidget {
+                color: #e0e0e0;
+                font-family: 'Inter', 'Segoe UI', 'Roboto', sans-serif;
+            }
+            QGroupBox {
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 12px;
+                margin-top: 20px;
+                font-weight: bold;
+                background-color: rgba(255, 255, 255, 0.03);
+                padding: 15px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 15px;
+                padding: 0 5px;
+                color: #bb86fc;
+            }
+            QPushButton {
+                background-color: #1f2128;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 8px;
+                padding: 10px 15px;
+                font-weight: bold;
+                color: #ffffff;
+            }
+            QPushButton:hover {
+                background-color: #2a2d37;
+                border: 1px solid #00b0f4;
+            }
+            QPushButton:pressed {
+                background-color: #121419;
+            }
+            QPushButton#primaryBtn {
+                background-color: #00b0f4;
+                color: #000000;
+                border: none;
+            }
+            QPushButton#primaryBtn:hover {
+                background-color: #33c0ff;
+            }
+            QPushButton#dangerBtn {
+                background-color: rgba(240, 71, 71, 0.1);
+                border: 1px solid #f04747;
+                color: #f04747;
+            }
+            QPushButton#dangerBtn:hover {
+                background-color: #f04747;
+                color: white;
+            }
+            QLineEdit, QSpinBox, QComboBox {
+                background-color: #16181d;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 6px;
+                padding: 8px;
+                color: #ffffff;
+            }
+            QLineEdit:focus, QSpinBox:focus, QComboBox:focus {
+                border: 1px solid #00b0f4;
+            }
+            QSlider::groove:horizontal {
+                border: 1px solid #1f2128;
+                height: 6px;
+                background: #1f2128;
+                margin: 2px 0;
+                border-radius: 3px;
+            }
+            QSlider::handle:horizontal {
+                background: #00b0f4;
+                border: 1px solid #00b0f4;
+                width: 16px;
+                height: 16px;
+                margin: -6px 0;
+                border-radius: 8px;
+            }
+            QListWidget {
+                background-color: #16181d;
+                border: 1px solid rgba(255, 255, 255, 0.05);
+                border-radius: 8px;
+                outline: none;
+                padding: 5px;
+            }
+            QListWidget::item {
+                padding: 10px;
+                border-radius: 6px;
+                margin: 2px 5px;
+            }
+            QListWidget::item:selected {
+                background-color: rgba(0, 176, 244, 0.2);
+                color: #00b0f4;
+                border: 1px solid rgba(0, 176, 244, 0.3);
+            }
+            QScrollBar:vertical {
+                border: none;
+                background: transparent;
+                width: 8px;
+                margin: 0px 0px 0px 0px;
+            }
+            QScrollBar::handle:vertical {
+                background: rgba(255, 255, 255, 0.1);
+                min-height: 20px;
+                border-radius: 4px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: rgba(255, 255, 255, 0.2);
+            }
+            QCheckBox {
+                spacing: 10px;
+                font-size: 13px;
+            }
+            QCheckBox::indicator {
+                width: 18px;
+                height: 18px;
+                border-radius: 4px;
+                border: 1px solid rgba(255, 255, 255, 0.2);
+                background-color: #16181d;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #00b0f4;
+                image: url(check_mark.png); /* Fallback to styled if no icon */
+            }
+            QScrollArea {
+                border: none;
+                background-color: transparent;
+            }
+        """)
         
     def load_config(self):
         try:
@@ -164,31 +348,36 @@ class LinuxHelloGUI(QMainWindow):
         left_side_layout = QVBoxLayout(left_side)
         left_side_layout.setContentsMargins(0, 0, 0, 0)
 
-        # Header with Logo
         header_container = QWidget()
         header_hbox = QHBoxLayout(header_container)
-        header_hbox.setContentsMargins(0, 0, 0, 0)
+        header_hbox.setContentsMargins(10, 10, 10, 20)
         
         if os.path.exists(self.logo_path):
             logo_label = QLabel()
-            logo_px = QPixmap(self.logo_path).scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            logo_px = QPixmap(self.logo_path).scaled(50, 50, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             logo_label.setPixmap(logo_px)
             header_hbox.addWidget(logo_label)
             
+        header_vbox = QVBoxLayout()
         header = QLabel("Linux Bonjour")
-        header.setFont(QFont("Outfit", 26, QFont.Bold))
-        header_hbox.addWidget(header)
+        header.setFont(QFont("Inter", 24, QFont.Bold))
+        header.setStyleSheet("color: white; letter-spacing: 1px;")
+        header_vbox.addWidget(header)
+        
+        self.status_label = QLabel("● Daemon: Checking...")
+        self.status_label.setStyleSheet("color: #ffa000; font-weight: bold; font-size: 11px;")
+        header_vbox.addWidget(self.status_label)
+        header_hbox.addLayout(header_vbox)
         header_hbox.addStretch()
+        
         left_side_layout.addWidget(header_container)
         
-        self.status_label = QLabel("Daemon: Checking...")
-        self.status_label.setStyleSheet("color: #ffa000; font-weight: bold;")
-        
         status_h = QHBoxLayout()
-        status_h.addWidget(self.status_label)
+        status_h.setContentsMargins(10, 0, 10, 10)
         
-        self.start_daemon_btn = QPushButton("Start Daemon")
-        self.start_daemon_btn.setStyleSheet("background-color: #f04747; color: white; padding: 5px; font-weight: bold; border-radius: 4px;")
+        self.start_daemon_btn = QPushButton(" Wake System")
+        self.start_daemon_btn.setObjectName("primaryBtn")
+        self.start_daemon_btn.setMinimumHeight(35)
         self.start_daemon_btn.clicked.connect(self.on_start_daemon)
         self.start_daemon_btn.hide()
         status_h.addWidget(self.start_daemon_btn)
@@ -282,27 +471,25 @@ class LinuxHelloGUI(QMainWindow):
         hw_group.setLayout(hw_layout)
         settings_layout.addWidget(hw_group)
 
-        # 4. Buttons
         btn_layout = QHBoxLayout()
         self.apply_btn = QPushButton("Apply Settings")
+        self.apply_btn.setObjectName("primaryBtn")
         self.apply_btn.clicked.connect(self.apply_settings)
-        self.apply_btn.setStyleSheet("background-color: #4CAF50; color: white; padding: 12px; font-weight: bold;")
-        self.reset_btn = QPushButton("Reset")
+        self.reset_btn = QPushButton("Reset Defaults")
         self.reset_btn.clicked.connect(self.reset_settings)
-        self.reset_btn.setStyleSheet("background-color: #616161; color: white; padding: 12px;")
         btn_layout.addWidget(self.reset_btn)
         btn_layout.addWidget(self.apply_btn)
         settings_layout.addLayout(btn_layout)
         
         # 5. Users
-        user_group = QGroupBox("Managed Identities")
+        user_group = QGroupBox("Registered Identities")
         user_layout = QVBoxLayout()
         self.user_list = QListWidget()
         self.refresh_users()
         user_layout.addWidget(self.user_list)
-        del_btn = QPushButton("Delete Identity")
+        del_btn = QPushButton("Remove Identity")
+        del_btn.setObjectName("dangerBtn")
         del_btn.clicked.connect(self.delete_user)
-        del_btn.setStyleSheet("background-color: #f44336; color: white; padding: 8px;")
         user_layout.addWidget(del_btn)
         user_group.setLayout(user_layout)
         settings_layout.addWidget(user_group)
@@ -315,39 +502,46 @@ class LinuxHelloGUI(QMainWindow):
         right_layout = QVBoxLayout(right_panel)
         right_layout.setContentsMargins(0, 0, 0, 0)
         
-        feed_group = QGroupBox("Live Security Feed")
+        feed_group = QGroupBox("Security Monitor")
         feed_layout = QVBoxLayout()
-        self.image_label = QLabel("Camera Inactive")
+        self.image_label = QLabel("System Standby")
         self.image_label.setAlignment(Qt.AlignCenter)
         self.image_label.setMinimumSize(450, 350)
-        self.image_label.setStyleSheet("background-color: #000; border: 2px solid #333; border-radius: 10px;")
+        self.image_label.setStyleSheet("""
+            background-color: #000; 
+            border: 2px solid rgba(0, 176, 244, 0.3); 
+            border-radius: 15px;
+            color: rgba(255, 255, 255, 0.3);
+            font-weight: bold;
+        """)
         feed_layout.addWidget(self.image_label)
+        
+        # Overlay for Holographic Scanner
+        self.scanner_overlay = ScannerOverlay(self.image_label)
+        self.scanner_overlay.setGeometry(0, 0, 450, 350)
+        self.scanner_overlay.hide()
+        
         feed_group.setLayout(feed_layout)
         right_layout.addWidget(feed_group)
         
-        enroll_group = QGroupBox("New Enrollment")
-        enroll_layout = QVBoxLayout()
-        self.u_input = QLineEdit()
-        self.u_input.setPlaceholderText("Enter System Username")
-        # Auto-fill with system username
-        import getpass
-        self.u_input.setText(getpass.getuser())
-        self.u_input.setStyleSheet("padding: 8px; background-color: #40444b; border-radius: 5px;")
-        enroll_layout.addWidget(self.u_input)
-        
-        warning_label = QLabel("⚠️ Important: Name must match your system username exactly.")
-        warning_label.setStyleSheet("color: #ffa000; font-size: 10px;")
-        enroll_layout.addWidget(warning_label)
-        self.enroll_btn = QPushButton("Start Live Capture")
+        self.auto_capture_cb = QCheckBox("Enable Auto-Capture")
+        self.auto_capture_cb.setChecked(True)
+        self.auto_capture_cb.setStyleSheet("color: #00b0f4; font-size: 11px;")
+        enroll_layout.addWidget(self.auto_capture_cb)
+
+        self.enroll_btn = QPushButton("Access Camera")
+        self.enroll_btn.setMinimumHeight(45)
         self.enroll_btn.clicked.connect(self.toggle_video)
         enroll_layout.addWidget(self.enroll_btn)
-        self.save_enroll_btn = QPushButton("Save Identity")
+        self.save_enroll_btn = QPushButton("Capture Signature")
+        self.save_enroll_btn.setObjectName("primaryBtn")
+        self.save_enroll_btn.setMinimumHeight(50)
         self.save_enroll_btn.setEnabled(False)
         self.save_enroll_btn.clicked.connect(self.save_identity)
-        self.save_enroll_btn.setStyleSheet("background-color: #2196F3; color: white; padding: 12px; font-weight: bold;")
         enroll_layout.addWidget(self.save_enroll_btn)
-        self.enroll_status = QLabel("Standby")
+        self.enroll_status = QLabel("Ready for scan")
         self.enroll_status.setAlignment(Qt.AlignCenter)
+        self.enroll_status.setStyleSheet("color: rgba(255, 255, 255, 0.5); padding: 5px;")
         enroll_layout.addWidget(self.enroll_status)
         enroll_group.setLayout(enroll_layout)
         right_layout.addWidget(enroll_group)
@@ -362,11 +556,10 @@ class LinuxHelloGUI(QMainWindow):
         self.status_thread.pam_status_signal.connect(self.update_pam_toggle)
         self.status_thread.start()
 
-    @Slot(bool)
     def update_status_label(self, active):
-        self.status_label.setText(f"Daemon: {'ACTIVE' if active else 'STOPPED'}")
-        color = "#4CAF50" if active else "#f44336"
-        self.status_label.setStyleSheet(f"color: {color}; font-weight: bold;")
+        self.status_label.setText(f"● Daemon: {'ACTIVE' if active else 'STOPPED'}")
+        color = "#03dac6" if active else "#f04747"
+        self.status_label.setStyleSheet(f"color: {color}; font-weight: bold; font-size: 11px;")
         
         # Toggle button visibility
         if active:
@@ -471,8 +664,14 @@ class LinuxHelloGUI(QMainWindow):
         users_dir = os.path.join(PROJECT_ROOT, self.config.get("users_dir", "config/users"))
         if os.path.exists(users_dir):
             try:
-                users = [f.replace(".npy", "") for f in os.listdir(users_dir) if f.endswith(".npy")]
-                for user in users:
+                # Show both .npy and .enc, but only unique names
+                files = os.listdir(users_dir)
+                users = set()
+                for f in files:
+                    if f.endswith(".npy") or f.endswith(".enc"):
+                        users.add(f.rsplit(".", 1)[0])
+                
+                for user in sorted(list(users)):
                     item = QListWidgetItem(user)
                     self.user_list.addItem(item)
             except: pass
@@ -482,9 +681,18 @@ class LinuxHelloGUI(QMainWindow):
         if not item: return
         username = item.text()
         if QMessageBox.question(self, 'Delete', f"Delete {username}?") == QMessageBox.Yes:
-            path = os.path.join(PROJECT_ROOT, self.config.get("users_dir", "config/users"), f"{username}.npy")
-            if os.path.exists(path):
-                os.remove(path)
+            path_enc = os.path.join(PROJECT_ROOT, self.config.get("users_dir", "config/users"), f"{username}.enc")
+            path_npy = os.path.join(PROJECT_ROOT, self.config.get("users_dir", "config/users"), f"{username}.npy")
+            
+            deleted = False
+            if os.path.exists(path_enc):
+                os.remove(path_enc)
+                deleted = True
+            if os.path.exists(path_npy):
+                os.remove(path_npy)
+                deleted = True
+                
+            if deleted:
                 self.refresh_users()
 
     @Slot()
@@ -497,6 +705,7 @@ class LinuxHelloGUI(QMainWindow):
     def start_video(self):
         self.enroll_status.setText("Initializing...")
         self.enroll_btn.setText("Stop Feed")
+        self.scanner_overlay.show()
         self.video_thread = VideoThread(self.config.get("model_name", "buffalo_s"))
         self.video_thread.change_pixmap_signal.connect(self.update_image)
         self.video_thread.face_detected_signal.connect(self.on_face_detected)
@@ -504,7 +713,8 @@ class LinuxHelloGUI(QMainWindow):
 
     def stop_video(self):
         if self.video_thread: self.video_thread.stop()
-        self.image_label.setText("Camera Inactive")
+        self.scanner_overlay.hide()
+        self.image_label.setText("System Standby")
         self.image_label.setPixmap(QPixmap())
         self.enroll_btn.setText("Start Feed")
         self.enroll_status.setText("Standby")
@@ -513,17 +723,36 @@ class LinuxHelloGUI(QMainWindow):
     @Slot(QImage)
     def update_image(self, q_img):
         pixmap = QPixmap.fromImage(q_img)
-        self.image_label.setPixmap(pixmap.scaled(self.image_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        target_size = self.image_label.size()
+        self.image_label.setPixmap(pixmap.scaled(target_size, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        self.scanner_overlay.resize(target_size) # Keep overlay synced
 
     @Slot(bool, object)
     def on_face_detected(self, detected, face_obj):
+        now = time.time()
         if detected:
-            self.enroll_status.setText("<font color='#4CAF50'><b>FACE DETECTED</b></font>")
             self.current_face_embedding = face_obj.normed_embedding
             self.save_enroll_btn.setEnabled(True)
+            
+            if self.auto_capture_cb.isChecked():
+                if self.face_detect_start_time is None:
+                    self.face_detect_start_time = now
+                
+                elapsed = now - self.face_detect_start_time
+                remaining = max(0, self.capture_delay - elapsed)
+                
+                if remaining > 0:
+                    self.enroll_status.setText(f"<font color='#00b0f4'><b>AUTO-CAPTURING IN {remaining:.1f}s...</b></font>")
+                else:
+                    self.enroll_status.setText("<font color='#03dac6'><b>SIGNATURE CAPTURED!</b></font>")
+                    self.face_detect_start_time = None # Reset
+                    self.save_identity() # Trigger auto-save
+            else:
+                self.enroll_status.setText("<font color='#4CAF50'><b>FACE DETECTED</b></font>")
         else:
             self.enroll_status.setText("<font color='#f44336'>SEARCHING...</font>")
             self.save_enroll_btn.setEnabled(False)
+            self.face_detect_start_time = None
 
     def save_identity(self):
         username = self.u_input.text().strip()
@@ -542,10 +771,11 @@ class LinuxHelloGUI(QMainWindow):
             return
 
         users_dir = os.path.join(PROJECT_ROOT, self.config.get("users_dir", "config/users"))
-        path = os.path.join(users_dir, f"{username}.npy")
+        path_enc = os.path.join(users_dir, f"{username}.enc")
+        path_npy = os.path.join(users_dir, f"{username}.npy")
 
         # Overwrite Protection
-        if os.path.exists(path):
+        if os.path.exists(path_enc) or os.path.exists(path_npy):
             reply = QMessageBox.question(self, "Overwrite Identity", 
                                        f"An identity named '{username}' already exists. Overwrite it?",
                                        QMessageBox.Yes | QMessageBox.No)
@@ -554,7 +784,19 @@ class LinuxHelloGUI(QMainWindow):
 
         try:
             os.makedirs(users_dir, exist_ok=True)
-            np.save(path, self.current_face_embedding)
+            
+            # Encrypt the embedding
+            buffer = io.BytesIO()
+            np.save(buffer, self.current_face_embedding)
+            encrypted_data = encrypt_data(buffer.getvalue())
+            
+            with open(path_enc, 'wb') as ef:
+                ef.write(encrypted_data)
+                
+            # If an old .npy exists, remove it after encryption
+            if os.path.exists(path_npy):
+                os.remove(path_npy)
+                
             self.refresh_users()
             self.stop_video()
             self.u_input.clear()
@@ -578,7 +820,7 @@ if __name__ == "__main__":
     palette.setColor(QPalette.Button, QColor(64, 68, 75))
     palette.setColor(QPalette.Highlight, QColor(0, 176, 244))
     app.setPalette(palette)
-    app.setFont(QFont("Verdana", 9))
+    app.setFont(QFont("Inter", 10))
     window = LinuxHelloGUI()
     window.show()
     sys.exit(app.exec())

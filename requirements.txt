@@ -4,3 +4,4 @@ numpy
 onnxruntime
 psutil
 PySide6
+cryptography

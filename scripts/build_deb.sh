@@ -18,14 +18,17 @@ cd "$PROJECT_ROOT"
 
 # 2. Stage Files
 echo "Staging files..."
-cp src/pam_rs/target/release/libpam_bonjour.so pkg/usr/lib/security/pam_bonjour.so
-mkdir -p pkg/usr/share/polkit-1/actions
-cp pkg/usr/share/polkit-1/actions/org.linuxbonjour.policy pkg/usr/share/polkit-1/actions/org.linuxbonjour.policy 2>/dev/null || cp org.linuxbonjour.policy pkg/usr/share/polkit-1/actions/ 2>/dev/null || true
-
-# Clean and sync app files
-# We exclude venv, git, and other build artifacts
-rm -rf pkg/usr/share/linux-bonjour/*
+# Clean and recreate staging area
+rm -rf pkg/usr pkg/etc
+mkdir -p pkg/usr/lib/security
+mkdir -p pkg/usr/bin
 mkdir -p pkg/usr/share/linux-bonjour/src
+mkdir -p pkg/usr/share/polkit-1/actions
+mkdir -p pkg/usr/share/applications
+
+cp src/pam_rs/target/release/libpam_bonjour.so pkg/usr/lib/security/pam_bonjour.so
+cp pkg/usr/share/polkit-1/actions/org.linuxbonjour.policy pkg/usr/share/polkit-1/actions/ 2>/dev/null || cp org.linuxbonjour.policy pkg/usr/share/polkit-1/actions/ 2>/dev/null || true
+
 cp -r src/daemon src/gui pkg/usr/share/linux-bonjour/src/
 cp -r scripts config requirements.txt pkg/usr/share/linux-bonjour/
 cp src/gui/assets/logo.png pkg/usr/share/linux-bonjour/logo.png

@@ -8,7 +8,9 @@ import json
 
 # Add daemon path to import our Camera
 sys.path.append(os.path.abspath("src"))
+import io
 from daemon.camera import IRCamera
+from daemon.crypto_utils import encrypt_data
 
 CONFIG_PATH = "config/config.json"
 
@@ -56,8 +58,15 @@ def enroll_user(username=None):
         if not os.path.exists(users_dir):
             os.makedirs(users_dir)
             
-        save_path = os.path.join(users_dir, f"{username}.npy")
-        np.save(save_path, embedding)
+        save_path = os.path.join(users_dir, f"{username}.enc")
+        
+        # Encrypt the embedding
+        buffer = io.BytesIO()
+        np.save(buffer, embedding)
+        encrypted_data = encrypt_data(buffer.getvalue())
+        
+        with open(save_path, 'wb') as f:
+            f.write(encrypted_data)
         
         # Also maintain legacy owner.npy for the first user
         if not os.path.exists("config/owner.npy"):

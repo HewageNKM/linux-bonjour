@@ -1,7 +1,7 @@
 {
     "socket_path": "/run/linux-bonjour.sock",
     "model_name": "buffalo_l",
-    "threshold": 0.7,
+    "threshold": 0.5,
     "users_dir": "config/users",
     "cooldown_time": 60,
     "max_failures": 3,

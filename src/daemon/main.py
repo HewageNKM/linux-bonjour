@@ -5,13 +5,32 @@ import cv2
 import time
 import json
 from insightface.app import FaceAnalysis
+import io
 from camera import IRCamera
+from crypto_utils import encrypt_data, decrypt_data
 
 # --- Configuration Loader ---
-CONFIG_PATH = "config/config.json"
+# Ensure we use absolute paths when running as a service
+BASE_DIR = "/usr/share/linux-bonjour"
+CONFIG_PATH = os.path.join(BASE_DIR, "config/config.json")
+
 def load_config():
-    with open(CONFIG_PATH, 'r') as f:
-        return json.load(f)
+    try:
+        with open(CONFIG_PATH, 'r') as f:
+            conf = json.load(f)
+            # Ensure users_dir is absolute
+            if not conf['users_dir'].startswith('/'):
+                conf['users_dir'] = os.path.join(BASE_DIR, conf['users_dir'])
+            return conf
+    except Exception as e:
+        print(f"CRITICAL: Failed to load config from {CONFIG_PATH}: {e}")
+        # Return sensible defaults if file missing
+        return {
+            "threshold": 0.45,
+            "model_name": "buffalo_s",
+            "users_dir": os.path.join(BASE_DIR, "config/users"),
+            "socket_path": "/run/linux-bonjour.sock"
+        }
 
 # --- Logging Helper ---
 LOG_FILE = "/usr/share/linux-bonjour/daemon.log"
@@ -47,9 +66,8 @@ class FaceDaemon:
         now = time.time()
         if username in self.failed_attempts:
             count, last_time = self.failed_attempts[username]
-            if count >= self.config['max_failures'] and (now - last_time) < self.config['cooldown_time']:
+            if count >= self.config.get('max_failures', 5) and (now - last_time) < self.config.get('cooldown_time', 60):
                 log_event(f"AUTH FAILED: User {username} is throttled.")
-                print(f"User {username} is throttled. Wait {int(self.config['cooldown_time'] - (now - last_time))}s.")
                 return False
 
         # 2. Collect Target Embeddings
@@ -60,17 +78,53 @@ class FaceDaemon:
             users_dir = self.config['users_dir']
             if os.path.exists(users_dir):
                 for f in os.listdir(users_dir):
-                    if f.endswith(".npy"):
+                    # Try encrypted first (.enc)
+                    enc_file = os.path.join(users_dir, f)
+                    if f.endswith(".enc"):
+                        try:
+                            with open(enc_file, 'rb') as ef:
+                                decrypted = decrypt_data(ef.read())
+                                emb = np.load(io.BytesIO(decrypted))
+                                targets.append((f.replace(".enc", ""), emb))
+                        except Exception as e:
+                            log_event(f"ERROR: Failed to decrypt user data for '{f}': {e}")
+                    elif f.endswith(".npy"):
+                        # Automatic Migration: npy -> enc
                         try:
                             emb = np.load(os.path.join(users_dir, f))
+                            # Save as encrypted
+                            buffer = io.BytesIO()
+                            np.save(buffer, emb)
+                            encrypted = encrypt_data(buffer.getvalue())
+                            with open(enc_file.replace(".npy", ".enc"), 'wb') as ef:
+                                ef.write(encrypted)
+                            # Add to targets
                             targets.append((f.replace(".npy", ""), emb))
-                        except: pass
+                            log_event(f"MIGRATION: User '{f}' data encrypted and saved.")
+                        except Exception as e:
+                            log_event(f"ERROR: Failed to migrate user data for '{f}': {e}")
         else:
             # Traditional strict username matching
-            user_file = os.path.join(self.config['users_dir'], f"{username}.npy")
-            if os.path.exists(user_file):
+            user_file_enc = os.path.join(self.config['users_dir'], f"{username}.enc")
+            user_file_npy = os.path.join(self.config['users_dir'], f"{username}.npy")
+            
+            if os.path.exists(user_file_enc):
                 try:
-                    targets.append((username, np.load(user_file)))
+                    with open(user_file_enc, 'rb') as ef:
+                        decrypted = decrypt_data(ef.read())
+                        emb = np.load(io.BytesIO(decrypted))
+                        targets.append((username, emb))
+                except Exception as e:
+                    log_event(f"ERROR: Failed to decrypt user '{username}': {e}")
+            elif os.path.exists(user_file_npy):
+                try:
+                    emb = np.load(user_file_npy)
+                    targets.append((username, emb))
+                    # Migration
+                    buffer = io.BytesIO()
+                    np.save(buffer, emb)
+                    with open(user_file_enc, 'wb') as ef:
+                        ef.write(encrypt_data(buffer.getvalue()))
                 except: pass
         
         # Fallback to owner if no targets found yet
@@ -89,7 +143,9 @@ class FaceDaemon:
         if frame is None: return False
 
         faces = self.app.get(frame)
-        if not faces: return False
+        if not faces:
+            log_event(f"AUTH FAILED: No face detected for '{username}'")
+            return False
 
         live_embedding = faces[0].normed_embedding
         
@@ -131,9 +187,10 @@ class FaceDaemon:
         while True:
             conn, _ = server.accept()
             try:
-                request = conn.recv(1024).decode().strip()
-                if request.startswith("AUTH "):
-                    username = request.split(" ", 1)[1]
+                raw_request = conn.recv(1024).decode().strip()
+                log_event(f"DEBUG: Received request: '{raw_request}'")
+                if raw_request.startswith("AUTH "):
+                    username = raw_request.split(" ", 1)[1]
                     
                     # Reload config on each auth attempt for live changes
                     new_config = load_config()
