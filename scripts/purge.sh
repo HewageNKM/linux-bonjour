@@ -42,6 +42,7 @@ rm -f /usr/share/polkit-1/actions/org.linuxbonjour.policy
 # 5. Remove PAM Modules
 echo "Removing PAM modules..."
 rm -f /lib/security/pam_bonjour.so /lib/security/pam_hello.so
+rm -f /lib/x86_64-linux-gnu/security/pam_bonjour.so
 rm -f /usr/lib/x86_64-linux-gnu/security/pam_bonjour.so /usr/lib/x86_64-linux-gnu/security/pam_hello.so
 
 # 6. Clean Local Project Artifacts

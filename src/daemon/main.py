@@ -34,7 +34,8 @@ def load_config():
 
 # --- Logging Helper ---
 LOG_FILE = "/usr/share/linux-bonjour/daemon.log"
-def log_event(message):
+def log_event(message, enabled=True):
+    if not enabled: return
     try:
         with open(LOG_FILE, 'a') as f:
             f.write(f"[{time.ctime()}] {message}\n")
@@ -45,8 +46,9 @@ class FaceDaemon:
         self.config = load_config()
         print(f"Initializing Face Recognition Engine with model: {self.config['model_name']}...")
         
-        # Load model with specified provider
-        self.app = FaceAnalysis(name=self.config['model_name'], providers=['CPUExecutionProvider'])
+        # Load model with specified provider in global models directory
+        models_dir = os.path.join(BASE_DIR, "models")
+        self.app = FaceAnalysis(name=self.config['model_name'], root=models_dir, providers=['CPUExecutionProvider'])
         self.app.prepare(ctx_id=0, det_size=(320, 320))
         
         # Initialize camera with optional config overrides
@@ -133,44 +135,76 @@ class FaceDaemon:
                 targets.append(("Owner", np.load("config/owner.npy")))
             except: pass
 
+    def verify(self, username, conn):
+        targets = self.get_targets(username)
         if not targets:
-            log_event(f"AUTH FAILED: No face data found for '{username}'.")
+            log_event(f"AUTH FAILED: No face data found for '{username}'.", 
+                      enabled=self.config.get('logging_enabled', True))
             print(f"No embedding found for user {username}")
             return False
 
-        # 3. Capture Frame
-        frame = self.cam.get_frame()
-        if frame is None: return False
+        # 3. Capture & Verify Loop (Retry for search_duration seconds)
+        start_verify = time.time()
+        max_duration = float(self.config.get("search_duration", 3.5))
+        attempt = 0
+        
+        # Non-blocking check for connection status
+        conn.setblocking(False)
+        
+        while (time.time() - start_verify) < max_duration:
+            # Check if client disconnected (User might have started typing password)
+            try:
+                data = conn.recv(1, socket.MSG_PEEK)
+                if not data: # Connection closed
+                    conn.setblocking(True)
+                    return False
+            except (BlockingIOError, InterruptedError):
+                pass # Still connected, no data
+            except:
+                conn.setblocking(True)
+                return False
 
-        faces = self.app.get(frame)
-        if not faces:
-            log_event(f"AUTH FAILED: No face detected for '{username}'")
-            return False
+            attempt += 1
+            frame = self.cam.get_frame()
+            if frame is None:
+                time.sleep(0.1)
+                continue
 
-        live_embedding = faces[0].normed_embedding
-        
-        # 4. Match against all candidates
-        best_score = -1
-        best_match = None
-        
-        for name, target_embedding in targets:
-            score = np.dot(live_embedding, target_embedding)
-            if score > best_score:
-                best_score = score
-                best_match = name
-        
-        print(f"Auth Request: {username}, Best Match: {best_match}, Score: {best_score:.4f}")
-        
-        if best_score > self.config['threshold']:
-            log_event(f"AUTH SUCCESS: User '{username}' recognized as '{best_match}' (Score: {best_score:.4f})")
-            self.failed_attempts[username] = (0, 0) # Reset on success
-            return True
-        else:
-            log_event(f"AUTH FAILED: User '{username}' best match was '{best_match}' with score {best_score:.4f}")
-            # Increment failure count
-            count, _ = self.failed_attempts.get(username, (0, 0))
-            self.failed_attempts[username] = (count + 1, now)
-            return False
+            faces = self.app.get(frame)
+            if not faces:
+                time.sleep(0.05)
+                continue
+
+            # Try to match any detected face in the frame
+            for face in faces:
+                live_embedding = face.normed_embedding
+                
+                best_score = -1
+                best_match = None
+                
+                for name, target_embedding in targets:
+                    score = np.dot(live_embedding, target_embedding)
+                    if score > best_score:
+                        best_score = score
+                        best_match = name
+                
+                if best_score > self.config['threshold']:
+                    log_event(f"AUTH SUCCESS: User '{username}' recognized as '{best_match}' (Score: {best_score:.4f}, Attempts: {attempt})", 
+                              enabled=self.config.get('logging_enabled', True))
+                    self.failed_attempts[username] = (0, 0) # Reset on success
+                    conn.setblocking(True)
+                    return True
+            
+            time.sleep(0.05) # Brief pause between frames
+
+        log_event(f"AUTH FAILED: Recognition timeout for '{username}' after {attempt} attempts.", 
+                  enabled=self.config.get('logging_enabled', True))
+        # Increment failure count
+        count, _ = self.failed_attempts.get(username, (0, 0))
+        now = time.time()
+        self.failed_attempts[username] = (count + 1, now)
+        conn.setblocking(True)
+        return False
 
     def run(self):
         socket_path = self.config['socket_path']
@@ -198,11 +232,12 @@ class FaceDaemon:
                     # Hot-reload model if it changed in config
                     if new_config.get('model_name') != self.config.get('model_name'):
                         print(f"Model change detected: {new_config['model_name']}. Hot-reloading...")
-                        self.app = FaceAnalysis(name=new_config['model_name'], providers=['CPUExecutionProvider'])
+                        models_dir = os.path.join(BASE_DIR, "models")
+                        self.app = FaceAnalysis(name=new_config['model_name'], root=models_dir, providers=['CPUExecutionProvider'])
                         self.app.prepare(ctx_id=0, det_size=(320, 320))
                     
                     self.config = new_config
-                    result = "SUCCESS" if self.verify(username) else "FAILURE"
+                    result = "SUCCESS" if self.verify(username, conn) else "FAILURE"
                     conn.sendall(result.encode())
             except Exception as e:
                 print(f"Error handling request: {e}")

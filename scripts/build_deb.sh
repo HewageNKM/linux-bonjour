@@ -20,19 +20,21 @@ cd "$PROJECT_ROOT"
 echo "Staging files..."
 # Clean and recreate staging area
 rm -rf pkg/usr pkg/etc
-mkdir -p pkg/usr/lib/security
+mkdir -p pkg/lib/x86_64-linux-gnu/security
 mkdir -p pkg/usr/bin
 mkdir -p pkg/usr/share/linux-bonjour/src
 mkdir -p pkg/usr/share/polkit-1/actions
 mkdir -p pkg/usr/share/pixmaps
 mkdir -p pkg/usr/share/applications
 
-cp src/pam_rs/target/release/libpam_bonjour.so pkg/usr/lib/security/pam_bonjour.so
+cp src/pam_rs/target/release/libpam_bonjour.so pkg/lib/x86_64-linux-gnu/security/pam_bonjour.so
 cp org.linuxbonjour.policy pkg/usr/share/polkit-1/actions/ 2>/dev/null || true
 cp linux-bonjour.desktop pkg/usr/share/applications/ 2>/dev/null || true
 cp src/gui/assets/logo.png pkg/usr/share/pixmaps/linux-bonjour.png 2>/dev/null || true
 
-cp -r src/daemon src/gui pkg/usr/share/linux-bonjour/src/
+mkdir -p pkg/usr/share/linux-bonjour/src/daemon
+cp src/daemon/*.py pkg/usr/share/linux-bonjour/src/daemon/
+cp -r src/gui pkg/usr/share/linux-bonjour/src/
 cp -r scripts config requirements.txt pkg/usr/share/linux-bonjour/
 cp src/gui/assets/logo.png pkg/usr/share/linux-bonjour/logo.png
 # Note: models will be downloaded by init_models.py during postinst or first run

@@ -27,6 +27,32 @@ from daemon.crypto_utils import encrypt_data
 class StatusWorker(QThread):
     status_signal = Signal(bool)
     pam_status_signal = Signal(bool)
+    granular_status_signal = Signal(dict)
+    
+class ModelDownloadWorker(QThread):
+    finished = Signal(bool, str)
+    progress = Signal(str)
+
+    def __init__(self, model_names):
+        super().__init__()
+        self.model_names = model_names
+
+    def run(self):
+        try:
+            from daemon.init_models import init_models
+            # We patch init_models temporarily or just call it if it's flexible
+            # Actually, let's just use the logic from it
+            models_dir = "/usr/share/linux-bonjour/models"
+            from insightface.app import FaceAnalysis
+            
+            for model_name in self.model_names:
+                self.progress.emit(f"Downloading {model_name}...")
+                app = FaceAnalysis(name=model_name, root=models_dir, providers=['CPUExecutionProvider'])
+                app.prepare(ctx_id=0, det_size=(320, 320))
+            
+            self.finished.emit(True, "All selected models are ready! ✅")
+        except Exception as e:
+            self.finished.emit(False, f"Download failed: {e}")
 
     def __init__(self):
         super().__init__()
@@ -41,15 +67,25 @@ class StatusWorker(QThread):
                 active = res.stdout.strip() == "active"
                 self.status_signal.emit(active)
                 
-                # PAM status (No sudo needed for status)
+                # PAM status
                 pam_res = subprocess.run([os.path.join(PROJECT_ROOT, "scripts", "setup_pam.sh"), "--status"], 
                                        capture_output=True, text=True, timeout=2)
-                # Detection: Look for ENABLED in common-auth
+                
+                # Global Detection
                 pam_enabled = "[ENABLED]  common-auth" in pam_res.stdout
                 self.pam_status_signal.emit(pam_enabled)
+                
+                # Granular Detection
+                granular = {
+                    "login": any(x in pam_res.stdout for x in ["[ENABLED]  gdm-password", "[ENABLED]  sddm", "[ENABLED]  lightdm"]),
+                    "sudo": "[ENABLED]  sudo" in pam_res.stdout,
+                    "polkit": "[ENABLED]  polkit-1" in pam_res.stdout
+                }
+                self.granular_status_signal.emit(granular)
             except:
                 self.status_signal.emit(False)
                 self.pam_status_signal.emit(False)
+                self.granular_status_signal.emit({"login": False, "sudo": False, "polkit": False})
             self.msleep(3000) # Check every 3s
 
     def stop(self):
@@ -402,11 +438,32 @@ class LinuxHelloGUI(QMainWindow):
         # 1. System Integration Group
         system_group = QGroupBox("System Integration")
         system_layout = QVBoxLayout()
-        self.pam_toggle = QCheckBox("Enable Face Unlock (System-wide)")
-        self.pam_toggle.setStyleSheet("font-weight: bold; padding: 5px;")
+        
+        self.pam_toggle = QCheckBox("Enable Face Unlock (Global / All)")
+        self.pam_toggle.setStyleSheet("font-weight: bold; padding: 5px; color: #E95420;")
         self.pam_toggle.stateChanged.connect(self.on_pam_toggle_changed)
         system_layout.addWidget(self.pam_toggle)
-        system_layout.addWidget(QLabel("<i>Active security for Login, Sudo, and Lock Screen.</i>"))
+        
+        # Granular toggles
+        granular_container = QWidget()
+        granular_layout = QVBoxLayout(granular_container)
+        granular_layout.setContentsMargins(25, 0, 0, 0) # Indent settings
+        granular_layout.setSpacing(8)
+        
+        self.login_toggle = QCheckBox("Login & Lock Screen (GDM/SDDM)")
+        self.login_toggle.stateChanged.connect(lambda s: self.on_granular_toggle_changed("login", s))
+        granular_layout.addWidget(self.login_toggle)
+        
+        self.sudo_toggle = QCheckBox("Sudo (Terminal Authentication)")
+        self.sudo_toggle.stateChanged.connect(lambda s: self.on_granular_toggle_changed("sudo", s))
+        granular_layout.addWidget(self.sudo_toggle)
+        
+        self.polkit_toggle = QCheckBox("Polkit (GUI Admin Prompts)")
+        self.polkit_toggle.stateChanged.connect(lambda s: self.on_granular_toggle_changed("polkit", s))
+        granular_layout.addWidget(self.polkit_toggle)
+        
+        system_layout.addWidget(granular_container)
+        system_layout.addWidget(QLabel("<i>Control where Face ID is active for system security.</i>"))
         system_group.setLayout(system_layout)
         settings_layout.addWidget(system_group)
 
@@ -424,17 +481,43 @@ class LinuxHelloGUI(QMainWindow):
         t_layout.addWidget(self.t_label)
         config_layout.addLayout(t_layout)
         
+        config_layout.addWidget(QLabel("<b>Auth Search Duration (s)</b>"))
+        d_layout = QHBoxLayout()
+        self.d_slider = QSlider(Qt.Horizontal)
+        self.d_slider.setRange(1, 10)
+        self.d_slider.setValue(int(self.config.get("search_duration", 3.5)))
+        self.d_label = QLabel(f"{self.d_slider.value()}s")
+        self.d_slider.valueChanged.connect(lambda v: self.d_label.setText(f"{v}s"))
+        d_layout.addWidget(self.d_slider)
+        d_layout.addWidget(self.d_label)
+        config_layout.addLayout(d_layout)
+        
         self.global_unlock_cb = QCheckBox("Global Face Unlock (Any Enrolled Face)")
         self.global_unlock_cb.setChecked(self.config.get("global_unlock", False))
         self.global_unlock_cb.setToolTip("Allows any person whose face is enrolled to authenticate as any user.\nUse only in trusted environments.")
         self.global_unlock_cb.setStyleSheet("font-weight: bold; padding: 5px;")
         config_layout.addWidget(self.global_unlock_cb)
         
+        self.logging_cb = QCheckBox("Enable Authentication Logging")
+        self.logging_cb.setChecked(self.config.get("logging_enabled", True))
+        self.logging_cb.setToolTip("Record authentication attempts and detailed failure reasons to daemon.log.")
+        config_layout.addWidget(self.logging_cb)
+        
         config_layout.addWidget(QLabel("<b>AI Model</b>"))
         self.m_combo = QComboBox()
-        self.m_combo.addItems(["buffalo_s", "buffalo_m", "buffalo_l", "antelopev2"])
+        self.m_combo.addItems(["buffalo_s", "buffalo_l", "antelopev2"])
         self.m_combo.setCurrentText(self.config.get("model_name", "buffalo_s"))
+        self.m_combo.currentIndexChanged.connect(self.on_model_selection_changed)
         config_layout.addWidget(self.m_combo)
+        
+        self.download_models_btn = QPushButton("☁️ Download High-Precision Models")
+        self.download_models_btn.setStyleSheet("font-size: 11px; padding: 5px; color: #00b0f4;")
+        self.download_models_btn.clicked.connect(self.download_heavy_models)
+        self.download_models_btn.hide() # Only show if needed
+        config_layout.addWidget(self.download_models_btn)
+        
+        # Check initial state
+        self.update_model_download_button_visibility()
         
         sub_layout = QHBoxLayout()
         c_vbox = QVBoxLayout()
@@ -571,6 +654,7 @@ class LinuxHelloGUI(QMainWindow):
         self.status_thread = StatusWorker()
         self.status_thread.status_signal.connect(self.update_status_label)
         self.status_thread.pam_status_signal.connect(self.update_pam_toggle)
+        self.status_thread.granular_status_signal.connect(self.update_granular_pam)
         self.status_thread.start()
 
     def update_status_label(self, active):
@@ -586,24 +670,58 @@ class LinuxHelloGUI(QMainWindow):
 
     @Slot(bool)
     def update_pam_toggle(self, enabled):
-        # Only update if we are not currently processsing a user click
-        # AND if the state has actually changed from what we last confirmed
         if not self.pam_updating and enabled != self.last_known_pam_state:
-            self.last_known_pam_state = enabled # Store first
+            self.last_known_pam_state = enabled
             self.pam_toggle.blockSignals(True)
             self.pam_toggle.setChecked(enabled)
             self.pam_toggle.blockSignals(False)
+            
+            # If global is enabled, granular ones should be checked and disabled
+            for toggle in [self.login_toggle, self.sudo_toggle, self.polkit_toggle]:
+                toggle.blockSignals(True)
+                if enabled: toggle.setChecked(True)
+                toggle.setEnabled(not enabled)
+                toggle.blockSignals(False)
+
+    @Slot(dict)
+    def update_granular_pam(self, granular):
+        if self.pam_updating or self.last_known_pam_state: # Skip if global is active or updating
+            return
+        
+        self.login_toggle.blockSignals(True)
+        self.login_toggle.setChecked(granular.get("login", False))
+        self.login_toggle.blockSignals(False)
+        
+        self.sudo_toggle.blockSignals(True)
+        self.sudo_toggle.setChecked(granular.get("sudo", False))
+        self.sudo_toggle.blockSignals(False)
+        
+        self.polkit_toggle.blockSignals(True)
+        self.polkit_toggle.setChecked(granular.get("polkit", False))
+        self.polkit_toggle.blockSignals(False)
+
+    def refresh_pam_status(self):
+        # Manually trigger a status check if needed
+        script_path = os.path.join(PROJECT_ROOT, "scripts", "setup_pam.sh")
+        pam_res = subprocess.run([script_path, "--status"], capture_output=True, text=True)
+        
+        global_enabled = "[ENABLED]  common-auth" in pam_res.stdout
+        granular = {
+            "login": any(x in pam_res.stdout for x in ["[ENABLED]  gdm-password", "[ENABLED]  sddm", "[ENABLED]  lightdm"]),
+            "sudo": "[ENABLED]  sudo" in pam_res.stdout,
+            "polkit": "[ENABLED]  polkit-1" in pam_res.stdout
+        }
+        
+        self.update_pam_toggle(global_enabled)
+        self.update_granular_pam(granular)
 
     def on_pam_toggle_changed(self, state):
         current_bool = (state == 2)
-        # Prevent loop: If this trigger matches what we last confirmed, do nothing
         if current_bool == self.last_known_pam_state:
             return
 
-        # Safety Guard: Check for face data before enabling
         if current_bool:
-            users_dir = os.path.join(PROJECT_ROOT, self.config.get("users_dir", "config/users"))
-            if not os.path.exists(users_dir) or not any(f.endswith(".npy") or f.endswith(".enc") for f in os.listdir(users_dir)):
+            if not self.has_face_data():
                 QMessageBox.critical(self, "No Face Data", "Cannot enable face unlock without any enrolled identities.\nPlease enroll at least one face profile first.")
                 self.pam_toggle.blockSignals(True)
                 self.pam_toggle.setChecked(False)
@@ -613,19 +731,47 @@ class LinuxHelloGUI(QMainWindow):
         self.pam_updating = True
         command = "--enable-all" if current_bool else "--disable-all"
         try:
-            # Fix: Use pkexec for graphical environments to trigger a password prompt
             script_path = os.path.join(PROJECT_ROOT, "scripts", "setup_pam.sh")
             subprocess.run(["pkexec", script_path, command], check=True)
             self.last_known_pam_state = current_bool
-            self.statusBar().showMessage(f"System Security {'Enabled' if current_bool else 'Disabled'}", 3000)
+            
+            # Disable granular toggles if global is ON to show it overrides them
+            for toggle in [self.login_toggle, self.sudo_toggle, self.polkit_toggle]:
+                toggle.blockSignals(True)
+                toggle.setChecked(current_bool)
+                toggle.setEnabled(not current_bool)
+                toggle.blockSignals(False)
+                
+            self.statusBar().showMessage(f"Global Security {'Enabled' if current_bool else 'Disabled'}", 3000)
         except Exception as e:
-            QMessageBox.critical(self, "Elevation Failed", f"Could not update system security settings.\nA password prompt should have appeared to authorize this change.\n\nError: {e}")
-            # Revert UI state
+            QMessageBox.critical(self, "Elevation Failed", f"Could not update system security settings: {e}")
             self.pam_toggle.blockSignals(True)
             self.pam_toggle.setChecked(not current_bool)
             self.pam_toggle.blockSignals(False)
         finally:
             self.pam_updating = False
+
+    def on_granular_toggle_changed(self, service, state):
+        if self.pam_updating: return
+        current_bool = (state == 2)
+        
+        if current_bool and not self.has_face_data():
+            QMessageBox.critical(self, "No Face Data", "Cannot enable face unlock without any enrolled identities.")
+            self.refresh_pam_status() # Revert
+            return
+
+        command = f"--{'enable' if current_bool else 'disable'}-{service}"
+        try:
+            script_path = os.path.join(PROJECT_ROOT, "scripts", "setup_pam.sh")
+            subprocess.run(["pkexec", script_path, command], check=True)
+            self.statusBar().showMessage(f"{service.capitalize()} Security {'Enabled' if current_bool else 'Disabled'}", 3000)
+        except Exception as e:
+            QMessageBox.critical(self, "Elevation Failed", f"Could not update {service} security: {e}")
+            self.refresh_pam_status()
+
+    def has_face_data(self):
+        users_dir = os.path.join(PROJECT_ROOT, self.config.get("users_dir", "config/users"))
+        return os.path.exists(users_dir) and any(f.endswith(".npy") or f.endswith(".enc") for f in os.listdir(users_dir))
 
     def on_start_daemon(self):
         try:
@@ -673,8 +819,47 @@ class LinuxHelloGUI(QMainWindow):
         self.config["camera_index"] = None if idx == -1 else idx
         self.config["camera_type"] = self.cam_type_combo.currentText()
         self.config["global_unlock"] = self.global_unlock_cb.isChecked()
+        self.config["logging_enabled"] = self.logging_cb.isChecked()
+        self.config["search_duration"] = self.d_slider.value()
         self.save_config()
         self.statusBar().showMessage("Settings applied successfully! ✨", 3000)
+
+    def on_model_selection_changed(self, index):
+        self.update_model_download_button_visibility()
+
+    def update_model_download_button_visibility(self):
+        model_name = self.m_combo.currentText()
+        models_dir = "/usr/share/linux-bonjour/models/models"
+        model_path = os.path.join(models_dir, model_name)
+        
+        # Models that are NOT downloaded by default
+        heavy_models = ["buffalo_l", "antelopev2"]
+        
+        if model_name in heavy_models and not os.path.exists(model_path):
+            self.download_models_btn.show()
+            self.download_models_btn.setText(f"☁️ Download {model_name} (High Precision)")
+        else:
+            self.download_models_btn.hide()
+
+    def download_heavy_models(self):
+        model_name = self.m_combo.currentText()
+        self.download_models_btn.setEnabled(False)
+        self.download_models_btn.setText("⏳ Downloading Model... Please Wait")
+        
+        self.download_worker = ModelDownloadWorker([model_name])
+        self.download_worker.finished.connect(self.on_download_finished)
+        self.download_worker.progress.connect(lambda p: self.statusBar().showMessage(p, 5000))
+        self.download_worker.start()
+
+    def on_download_finished(self, success, message):
+        self.download_models_btn.setEnabled(True)
+        self.update_model_download_button_visibility()
+        if success:
+            QMessageBox.information(self, "Download Complete", message)
+            self.statusBar().showMessage(message, 5000)
+        else:
+            QMessageBox.warning(self, "Download Failed", message)
+            self.statusBar().showMessage(message, 5000)
         
     def refresh_users(self):
         self.user_list.clear()

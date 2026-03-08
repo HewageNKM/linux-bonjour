@@ -52,9 +52,9 @@ disable_service() {
 
 check_status() {
     echo "--- Linux Bonjour PAM Status ---"
-    for f in "$COMMON_AUTH" "$GDM_AUTH" "$SDDM_AUTH"; do
+    SERVICES=("$COMMON_AUTH" "$GDM_AUTH" "$SDDM_AUTH" "/etc/pam.d/lightdm" "/etc/pam.d/sudo" "/etc/pam.d/polkit-1" "/etc/pam.d/su")
+    for f in "${SERVICES[@]}"; do
         if [ -f "$f" ]; then
-            # Read-only check, usually doesn't need root if files are world-readable (common on many distros)
             if grep -q "$PAM_MODULE" "$f" 2>/dev/null; then
                 echo "[ENABLED]  $(basename "$f")"
             else
@@ -70,14 +70,48 @@ case "$1" in
         enable_service "$COMMON_AUTH"
         enable_service "$GDM_AUTH"
         enable_service "$SDDM_AUTH"
-        echo "Face recognition enabled for all services!"
+        enable_service "/etc/pam.d/lightdm"
+        enable_service "/etc/pam.d/sudo"
+        enable_service "/etc/pam.d/polkit-1"
+        echo "Face recognition enabled system-wide!"
         ;;
     --disable-all)
         require_root
         disable_service "$COMMON_AUTH"
         disable_service "$GDM_AUTH"
         disable_service "$SDDM_AUTH"
+        disable_service "/etc/pam.d/lightdm"
+        disable_service "/etc/pam.d/sudo"
+        disable_service "/etc/pam.d/polkit-1"
         echo "Face recognition disabled system-wide."
+        ;;
+    --enable-login)
+        require_root
+        enable_service "$GDM_AUTH"
+        enable_service "$SDDM_AUTH"
+        enable_service "/etc/pam.d/lightdm"
+        ;;
+    --disable-login)
+        require_root
+        disable_service "$GDM_AUTH"
+        disable_service "$SDDM_AUTH"
+        disable_service "/etc/pam.d/lightdm"
+        ;;
+    --enable-sudo)
+        require_root
+        enable_service "/etc/pam.d/sudo"
+        ;;
+    --disable-sudo)
+        require_root
+        disable_service "/etc/pam.d/sudo"
+        ;;
+    --enable-polkit)
+        require_root
+        enable_service "/etc/pam.d/polkit-1"
+        ;;
+    --disable-polkit)
+        require_root
+        disable_service "/etc/pam.d/polkit-1"
         ;;
     --status)
         check_status

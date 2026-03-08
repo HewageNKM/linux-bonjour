@@ -39,11 +39,11 @@ else
 fi
 
 # Use 'install' command for better handling of binaries and permissions
-sudo install -m 644 "$PROJECT_DIR/src/pam_rs/target/release/libpam_hello.so" "$PAM_DIR/pam_hello.so"
+sudo install -m 644 "$PROJECT_DIR/src/pam_rs/target/release/libpam_bonjour.so" "$PAM_DIR/pam_bonjour.so"
 
 # 5. Initialize Models
 echo "Initializing models..."
-"$PROJECT_DIR/venv/bin/python" "$PROJECT_DIR/scripts/init_models.py"
+"$PROJECT_DIR/venv/bin/python" "$PROJECT_DIR/src/daemon/init_models.py"
 
 # 6. Configure Systemd Services
 echo "Configuring systemd services..."
@@ -54,15 +54,19 @@ sudo systemctl daemon-reload
 echo "Fixing configuration permissions..."
 sudo chown -R $REAL_USER:$REAL_USER "$PROJECT_DIR/config"
 
-# 7. Create Native GUI Desktop Entry
-echo "Creating desktop entry for Native Management GUI..."
-DESKTOP_FILE="/usr/share/applications/linux-bonjour-gui.desktop"
+# 7. Create Polkit Policy & Desktop Entry
+echo "Installing polkit policy..."
+sudo cp "$PROJECT_DIR/org.linuxbonjour.policy" /usr/share/polkit-1/actions/
+sudo chmod 644 /usr/share/polkit-1/actions/org.linuxbonjour.policy
+
+echo "Creating desktop entry for Management Console..."
+DESKTOP_FILE="/usr/share/applications/linux-bonjour.desktop"
 cat <<EOF | sudo tee $DESKTOP_FILE > /dev/null
 [Desktop Entry]
 Name=Linux Bonjour
 Comment=Manage face recognition settings and users
-Exec=$PROJECT_DIR/venv/bin/python $PROJECT_DIR/src/gui/gui_app.py
-Icon=$PROJECT_DIR/src/gui/assets/logo.png
+Exec=linux-bonjour
+Icon=linux-bonjour
 Terminal=false
 Type=Application
 Categories=Settings;Security;
