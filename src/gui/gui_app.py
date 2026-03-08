@@ -183,7 +183,18 @@ class LinuxHelloGUI(QMainWindow):
         
         self.status_label = QLabel("Daemon: Checking...")
         self.status_label.setStyleSheet("color: #ffa000; font-weight: bold;")
-        left_side_layout.addWidget(self.status_label)
+        
+        status_h = QHBoxLayout()
+        status_h.addWidget(self.status_label)
+        
+        self.start_daemon_btn = QPushButton("Start Daemon")
+        self.start_daemon_btn.setStyleSheet("background-color: #f04747; color: white; padding: 5px; font-weight: bold; border-radius: 4px;")
+        self.start_daemon_btn.clicked.connect(self.on_start_daemon)
+        self.start_daemon_btn.hide()
+        status_h.addWidget(self.start_daemon_btn)
+        status_h.addStretch()
+        
+        left_side_layout.addLayout(status_h)
 
         # Scroll Area for the rest of the left side
         left_scroll = QScrollArea()
@@ -342,6 +353,12 @@ class LinuxHelloGUI(QMainWindow):
         self.status_label.setText(f"Daemon: {'ACTIVE' if active else 'STOPPED'}")
         color = "#4CAF50" if active else "#f44336"
         self.status_label.setStyleSheet(f"color: {color}; font-weight: bold;")
+        
+        # Toggle button visibility
+        if active:
+            self.start_daemon_btn.hide()
+        else:
+            self.start_daemon_btn.show()
 
     @Slot(bool)
     def update_pam_toggle(self, enabled):
@@ -385,6 +402,16 @@ class LinuxHelloGUI(QMainWindow):
             self.pam_toggle.blockSignals(False)
         finally:
             self.pam_updating = False
+
+    def on_start_daemon(self):
+        try:
+            self.statusBar().showMessage("Starting Daemon...", 5000)
+            # Start and ENABLE for persistence
+            subprocess.run(["pkexec", "systemctl", "enable", "--now", "linux-bonjour"], check=True)
+            self.statusBar().showMessage("Daemon Started and Enabled! 🎉", 3000)
+        except Exception as e:
+            QMessageBox.critical(self, "Service Error", f"Failed to start daemon: {e}")
+            self.statusBar().showMessage("Start Failed ❌", 5000)
 
     def on_threshold_changed(self, value):
         self.t_label.setText(f"{value/100:.2f}")

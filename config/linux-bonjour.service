@@ -5,8 +5,8 @@ After=network.target
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/home/kawishika/Documents/Projects/linux-bonjour
-ExecStart=/home/kawishika/Documents/Projects/linux-bonjour/venv/bin/python src/daemon/main.py
+WorkingDirectory=/usr/share/linux-bonjour
+ExecStart=/usr/share/linux-bonjour/venv/bin/python src/daemon/main.py
 Restart=always
 RestartSec=3
 
