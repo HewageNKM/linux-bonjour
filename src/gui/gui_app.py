@@ -23,6 +23,7 @@ from daemon.sys_info import get_system_specs, suggest_model
 from insightface.app import FaceAnalysis
 import io
 from daemon.crypto_utils import encrypt_data
+from gui.ui.styles import GLOBAL_STYLE, SIDEBAR_COLOR, ACCENT_CYAN, GLASS_WHITE, ACCENT_TEAL, TEXT_SECONDARY, ERROR_RED, WARNING_GOLD
 
 class StatusWorker(QThread):
     status_signal = Signal(bool)
@@ -106,8 +107,12 @@ class VideoThread(QThread):
     def run(self):
         # Initialize AI inside thread
         if not self.app:
-            self.app = FaceAnalysis(name=self.model_name, providers=['CPUExecutionProvider'])
-            self.app.prepare(ctx_id=0, det_size=(320, 320))
+            try:
+                self.app = FaceAnalysis(name=self.model_name, providers=['CPUExecutionProvider'])
+                self.app.prepare(ctx_id=0, det_size=(320, 320))
+            except Exception as e:
+                print(f"Error initializing FaceAnalysis: {e}")
+                self.app = None
 
         cam = IRCamera(config=self.config)
         while self._run_flag:
@@ -164,29 +169,33 @@ class ScannerOverlay(QWidget):
         
         # Corner brackets
         w, h = self.width(), self.height()
-        pen = QPen(QColor(233, 84, 32, 180), 3) # Ubuntu Orange
+        pen = QPen(QColor(ACCENT_CYAN), 2)
+        pen.setOpacity(0.6)
         painter.setPen(pen)
         
-        length = 40
+        length = 30
         # Top Left
-        painter.drawLine(10, 10, 10 + length, 10)
-        painter.drawLine(10, 10, 10, 10 + length)
+        painter.drawLine(15, 15, 15 + length, 15)
+        painter.drawLine(15, 15, 15, 15 + length)
         # Top Right
-        painter.drawLine(w - 10, 10, w - 10 - length, 10)
-        painter.drawLine(w - 10, 10, w - 10, 10 + length)
+        painter.drawLine(w - 15, 15, w - 15 - length, 15)
+        painter.drawLine(w - 15, 15, w - 15, 15 + length)
         # Bottom Left
-        painter.drawLine(10, h - 10, 10 + length, h - 10)
-        painter.drawLine(10, h - 10, 10, h - 10 - length)
+        painter.drawLine(15, h - 15, 15 + length, h - 15)
+        painter.drawLine(15, h - 15, 15, h - 15 - length)
         # Bottom Right
-        painter.drawLine(w - 10, h - 10, w - 10 - length, h - 10)
-        painter.drawLine(w - 10, h - 10, w - 10, h - 10 - length)
+        painter.drawLine(w - 15, h - 15, w - 15 - length, h - 15)
+        painter.drawLine(w - 15, h - 15, w - 15, h - 15 - length)
 
-        # Scanning line
-        grad = QLinearGradient(0, self.scan_line_y - 10, 0, self.scan_line_y + 10)
-        grad.setColorAt(0, QColor(233, 84, 32, 0))    # Ubuntu Orange Transparent
-        grad.setColorAt(0.5, QColor(233, 84, 32, 150)) # Ubuntu Orange Solid
-        grad.setColorAt(1, QColor(233, 84, 32, 0))
-        painter.fillRect(0, self.scan_line_y - 10, w, 20, grad)
+        # Scanning line (Glassy Cyan)
+        grad = QLinearGradient(0, self.scan_line_y - 20, 0, self.scan_line_y + 20)
+        grad.setColorAt(0, QColor(0, 176, 244, 0))
+        grad.setColorAt(0.5, QColor(0, 176, 244, 80))
+        grad.setColorAt(1, QColor(0, 176, 244, 0))
+        painter.fillRect(0, self.scan_line_y - 20, w, 40, grad)
+        
+        painter.setPen(QPen(QColor(ACCENT_CYAN), 1))
+        painter.drawLine(0, self.scan_line_y, w, self.scan_line_y)
 
 class LinuxHelloGUI(QMainWindow):
     def __init__(self):
@@ -224,134 +233,7 @@ class LinuxHelloGUI(QMainWindow):
         self.start_status_monitoring()
 
     def apply_theme(self):
-        self.setStyleSheet("""
-            QMainWindow {
-                background-color: #242424;
-            }
-            QWidget {
-                color: #FFFFFF;
-                font-family: 'Ubuntu', 'Liberation Sans', sans-serif;
-            }
-            QGroupBox {
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 6px;
-                margin-top: 20px;
-                font-weight: bold;
-                background-color: #2D2D2D;
-                padding: 15px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px;
-                color: #E95420;
-            }
-            QPushButton {
-                background-color: #3D3D3D;
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 4px;
-                padding: 10px 15px;
-                font-weight: normal;
-                color: #ffffff;
-            }
-            QPushButton:hover {
-                background-color: #4D4D4D;
-                border: 1px solid #E95420;
-            }
-            QPushButton:pressed {
-                background-color: #2A2A2A;
-            }
-            QPushButton#primaryBtn {
-                background-color: #E95420;
-                color: #FFFFFF;
-                border: none;
-                font-weight: bold;
-            }
-            QPushButton#primaryBtn:hover {
-                background-color: #FB8C00;
-            }
-            QPushButton#dangerBtn {
-                background-color: #C62828;
-                border: none;
-                color: white;
-            }
-            QPushButton#dangerBtn:hover {
-                background-color: #D32F2F;
-            }
-            QLineEdit, QSpinBox, QComboBox {
-                background-color: #3D3D3D;
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 4px;
-                padding: 8px;
-                color: #ffffff;
-            }
-            QLineEdit:focus, QSpinBox:focus, QComboBox:focus {
-                border: 1px solid #E95420;
-            }
-            QSlider::groove:horizontal {
-                border: none;
-                height: 4px;
-                background: #3D3D3D;
-                margin: 2px 0;
-                border-radius: 2px;
-            }
-            QSlider::handle:horizontal {
-                background: #E95420;
-                border: 1px solid #E95420;
-                width: 14px;
-                height: 14px;
-                margin: -5px 0;
-                border-radius: 7px;
-            }
-            QListWidget {
-                background-color: #3D3D3D;
-                border: 1px solid rgba(255, 255, 255, 0.05);
-                border-radius: 6px;
-                outline: none;
-                padding: 5px;
-            }
-            QListWidget::item {
-                padding: 8px;
-                border-radius: 4px;
-                margin: 2px 5px;
-            }
-            QListWidget::item:selected {
-                background-color: #E95420;
-                color: #FFFFFF;
-            }
-            QScrollBar:vertical {
-                border: none;
-                background: transparent;
-                width: 10px;
-            }
-            QScrollBar::handle:vertical {
-                background: #4D4D4D;
-                min-height: 20px;
-                border-radius: 5px;
-            }
-            QScrollBar::handle:vertical:hover {
-                background: #5D5D5D;
-            }
-            QCheckBox {
-                spacing: 10px;
-                font-size: 13px;
-            }
-            QCheckBox::indicator {
-                width: 18px;
-                height: 18px;
-                border-radius: 4px;
-                border: 1px solid rgba(255, 255, 255, 0.2);
-                background-color: #3D3D3D;
-            }
-            QCheckBox::indicator:checked {
-                background-color: #E95420;
-                image: url(none);
-            }
-            QScrollArea {
-                border: none;
-                background-color: transparent;
-            }
-        """)
+        self.setStyleSheet(GLOBAL_STYLE)
         
     def load_config(self):
         try:
@@ -386,27 +268,28 @@ class LinuxHelloGUI(QMainWindow):
 
         # ---------------- LEFT SIDE: Fixed Header & Scrollable Settings ----------------
         left_side = QWidget()
+        left_side.setStyleSheet(f"background-color: {SIDEBAR_COLOR}; border-right: 1px solid {GLASS_WHITE};")
         left_side_layout = QVBoxLayout(left_side)
         left_side_layout.setContentsMargins(0, 0, 0, 0)
 
         header_container = QWidget()
         header_hbox = QHBoxLayout(header_container)
-        header_hbox.setContentsMargins(10, 10, 10, 20)
+        header_hbox.setContentsMargins(20, 30, 20, 30)
         
         if os.path.exists(self.logo_path):
             logo_label = QLabel()
-            logo_px = QPixmap(self.logo_path).scaled(50, 50, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            logo_px = QPixmap(self.logo_path).scaled(45, 45, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             logo_label.setPixmap(logo_px)
             header_hbox.addWidget(logo_label)
             
         header_vbox = QVBoxLayout()
-        header = QLabel("Linux Bonjour")
-        header.setFont(QFont("Ubuntu", 24, QFont.Bold))
-        header.setStyleSheet("color: white; letter-spacing: 0px;") # Ubuntu font doesn't need much spacing
+        header = QLabel("LINUX BONJOUR")
+        header.setFont(QFont("Inter", 18, QFont.Bold))
+        header.setStyleSheet(f"color: white; letter-spacing: 2px;")
         header_vbox.addWidget(header)
         
-        self.status_label = QLabel("● Daemon: Checking...")
-        self.status_label.setStyleSheet("color: #ffa000; font-weight: normal; font-size: 11px;") # Normal weight for subtle look
+        self.status_label = QLabel("● SYSTEM SECURED")
+        self.status_label.setStyleSheet(f"color: {ACCENT_CYAN}; font-weight: bold; font-size: 10px; letter-spacing: 1px;") # Typo fixed
         header_vbox.addWidget(self.status_label)
         header_hbox.addLayout(header_vbox)
         header_hbox.addStretch()
@@ -438,149 +321,106 @@ class LinuxHelloGUI(QMainWindow):
         settings_layout.setSpacing(15)
         
         # 1. System Integration Group
-        system_group = QGroupBox("System Integration")
+        system_group = QGroupBox("SYSTEM SECURITY")
         system_layout = QVBoxLayout()
+        system_layout.setSpacing(10)
         
-        self.pam_toggle = QCheckBox("Enable Face Unlock (Global / All)")
-        self.pam_toggle.setStyleSheet("font-weight: bold; padding: 5px; color: #E95420;")
+        self.pam_toggle = QCheckBox("GLOBAL FACE UNLOCK")
+        self.pam_toggle.setStyleSheet(f"font-weight: bold; color: {ACCENT_CYAN};")
+        self.pam_toggle.setMinimumHeight(40)
         self.pam_toggle.stateChanged.connect(self.on_pam_toggle_changed)
         system_layout.addWidget(self.pam_toggle)
         
-        # Granular toggles
+        # Indent sub-settings
         granular_container = QWidget()
         granular_layout = QVBoxLayout(granular_container)
-        granular_layout.setContentsMargins(25, 0, 0, 0) # Indent settings
-        granular_layout.setSpacing(8)
+        granular_layout.setContentsMargins(30, 0, 0, 0)
+        granular_layout.setSpacing(10)
         
-        self.login_toggle = QCheckBox("Login & Lock Screen (GDM/SDDM)")
+        self.login_toggle = QCheckBox("Lock Screen & Login")
         self.login_toggle.stateChanged.connect(lambda s: self.on_granular_toggle_changed("login", s))
         granular_layout.addWidget(self.login_toggle)
         
-        self.sudo_toggle = QCheckBox("Sudo (Terminal Authentication)")
+        self.sudo_toggle = QCheckBox("Sudo / Terminal Access")
         self.sudo_toggle.stateChanged.connect(lambda s: self.on_granular_toggle_changed("sudo", s))
         granular_layout.addWidget(self.sudo_toggle)
         
-        self.polkit_toggle = QCheckBox("Polkit (GUI Admin Prompts)")
+        self.polkit_toggle = QCheckBox("GUI Admin Requests (Polkit)")
         self.polkit_toggle.stateChanged.connect(lambda s: self.on_granular_toggle_changed("polkit", s))
         granular_layout.addWidget(self.polkit_toggle)
         
         system_layout.addWidget(granular_container)
-        system_layout.addWidget(QLabel("<i>Control where Face ID is active for system security.</i>"))
         system_group.setLayout(system_layout)
         settings_layout.addWidget(system_group)
 
-        # 2. Security Settings Group
-        config_group = QGroupBox("Security Settings")
+        # 2. Tech Configuration
+        config_group = QGroupBox("RECOGNITION ENGINE")
         config_layout = QVBoxLayout()
-        config_layout.addWidget(QLabel("<b>Match Threshold</b>"))
+        config_layout.setSpacing(15)
+        
+        config_layout.addWidget(QLabel("MATCH THRESHOLD"))
         t_layout = QHBoxLayout()
         self.t_slider = QSlider(Qt.Horizontal)
         self.t_slider.setRange(0, 100)
         self.t_slider.setValue(int(self.config.get("threshold", 0.45) * 100))
         self.t_label = QLabel(f"{self.config.get('threshold', 0.45):.2f}")
+        self.t_label.setFixedWidth(40)
         self.t_slider.valueChanged.connect(self.on_threshold_changed)
         t_layout.addWidget(self.t_slider)
         t_layout.addWidget(self.t_label)
         config_layout.addLayout(t_layout)
         
-        config_layout.addWidget(QLabel("<b>Auth Search Duration (s)</b>"))
-        d_layout = QHBoxLayout()
-        self.d_slider = QSlider(Qt.Horizontal)
-        self.d_slider.setRange(1, 10)
-        self.d_slider.setValue(int(self.config.get("search_duration", 3.5)))
-        self.d_label = QLabel(f"{self.d_slider.value()}s")
-        self.d_slider.valueChanged.connect(lambda v: self.d_label.setText(f"{v}s"))
-        d_layout.addWidget(self.d_slider)
-        d_layout.addWidget(self.d_label)
-        config_layout.addLayout(d_layout)
-        
-        self.global_unlock_cb = QCheckBox("Global Face Unlock (Any Enrolled Face)")
-        self.global_unlock_cb.setChecked(self.config.get("global_unlock", False))
-        self.global_unlock_cb.setToolTip("Allows any person whose face is enrolled to authenticate as any user.\nUse only in trusted environments.")
-        self.global_unlock_cb.setStyleSheet("font-weight: bold; padding: 5px;")
-        config_layout.addWidget(self.global_unlock_cb)
-        
-        self.logging_cb = QCheckBox("Enable Authentication Logging")
-        self.logging_cb.setChecked(self.config.get("logging_enabled", True))
-        self.logging_cb.setToolTip("Record authentication attempts and detailed failure reasons to daemon.log.")
-        config_layout.addWidget(self.logging_cb)
-        
-        config_layout.addWidget(QLabel("<b>AI Model</b>"))
+        config_layout.addWidget(QLabel("AI MODEL SELECTION"))
         self.m_combo = QComboBox()
         self.m_combo.addItems(["buffalo_sc", "buffalo_s", "buffalo_l", "antelopev2"])
         self.m_combo.setCurrentText(self.config.get("model_name", "buffalo_s"))
         self.m_combo.currentIndexChanged.connect(self.on_model_selection_changed)
+        self.m_combo.setMinimumHeight(40)
         config_layout.addWidget(self.m_combo)
         
-        self.download_models_btn = QPushButton("☁️ Download High-Precision Models")
-        self.download_models_btn.setStyleSheet("font-size: 11px; padding: 5px; color: #00b0f4;")
-        self.download_models_btn.clicked.connect(self.download_heavy_models)
-        self.download_models_btn.hide() # Only show if needed
-        config_layout.addWidget(self.download_models_btn)
-        
-        # Check initial state
-        self.update_model_download_button_visibility()
-        
-        sub_layout = QHBoxLayout()
-        c_vbox = QVBoxLayout()
-        c_vbox.addWidget(QLabel("<b>Cooldown (s)</b>"))
-        self.c_spin = QSpinBox()
-        self.c_spin.setRange(0, 3600)
-        self.c_spin.setValue(self.config.get("cooldown_time", 60))
-        c_vbox.addWidget(self.c_spin)
-        sub_layout.addLayout(c_vbox)
-        f_vbox = QVBoxLayout()
-        f_vbox.addWidget(QLabel("<b>Max Failures</b>"))
-        self.f_spin = QSpinBox()
-        self.f_spin.setRange(1, 20)
-        self.f_spin.setValue(self.config.get("max_failures", 5))
-        f_vbox.addWidget(self.f_spin)
-        sub_layout.addLayout(f_vbox)
-        config_layout.addLayout(sub_layout)
         config_group.setLayout(config_layout)
         settings_layout.addWidget(config_group)
         
-        # 3. Hardware Settings
-        hw_group = QGroupBox("Hardware Settings")
+        # 3. Hardware
+        hw_group = QGroupBox("HARDWARE INTERFACE")
         hw_layout = QVBoxLayout()
-        hw_layout.addWidget(QLabel("<b>Camera Selection</b>"))
+        hw_layout.setSpacing(10)
+        
+        hw_layout.addWidget(QLabel("CAMERA MODE"))
         self.cam_type_combo = QComboBox()
         self.cam_type_combo.addItems(["AUTO", "IR", "RGB"])
         self.cam_type_combo.setCurrentText(self.config.get("camera_type", "AUTO"))
+        self.cam_type_combo.setMinimumHeight(40)
         hw_layout.addWidget(self.cam_type_combo)
-        cam_idx_layout = QHBoxLayout()
-        cam_idx_layout.addWidget(QLabel("Index (-1=Auto)"))
-        self.cam_idx_spin = QSpinBox()
-        self.cam_idx_spin.setRange(-1, 10)
-        idx = self.config.get("camera_index")
-        self.cam_idx_spin.setValue(-1 if idx is None else idx)
-        cam_idx_layout.addWidget(self.cam_idx_spin)
-        hw_layout.addLayout(cam_idx_layout)
+        
         hw_group.setLayout(hw_layout)
         settings_layout.addWidget(hw_group)
 
-        btn_layout = QHBoxLayout()
-        self.apply_btn = QPushButton("Apply Settings")
-        self.apply_btn.setObjectName("primaryBtn")
-        self.apply_btn.clicked.connect(self.apply_settings)
-        self.reset_btn = QPushButton("Reset Defaults")
-        self.reset_btn.clicked.connect(self.reset_settings)
-        btn_layout.addWidget(self.reset_btn)
-        btn_layout.addWidget(self.apply_btn)
-        settings_layout.addLayout(btn_layout)
-        
-        # 5. Users
-        user_group = QGroupBox("Registered Identities")
+        # 4. Identity Management
+        user_group = QGroupBox("TRUSTED IDENTITIES")
         user_layout = QVBoxLayout()
         self.user_list = QListWidget()
+        self.user_list.setMinimumHeight(150)
         self.refresh_users()
         user_layout.addWidget(self.user_list)
-        del_btn = QPushButton("Remove Identity")
-        del_btn.setObjectName("dangerBtn")
-        del_btn.clicked.connect(self.delete_user)
-        user_layout.addWidget(del_btn)
+        
+        self.del_btn = QPushButton("REMOVE IDENTITY")
+        self.del_btn.setObjectName("dangerBtn")
+        self.del_btn.clicked.connect(self.delete_user)
+        user_layout.addWidget(self.del_btn)
         user_group.setLayout(user_layout)
         settings_layout.addWidget(user_group)
+
+        # Global Actions
+        actions_layout = QHBoxLayout()
+        self.reset_btn = QPushButton("RESTORE DEFAULTS")
+        self.reset_btn.clicked.connect(self.reset_settings)
+        self.apply_btn = QPushButton("SAVE CHANGES")
+        self.apply_btn.setObjectName("primaryBtn")
+        self.apply_btn.clicked.connect(self.apply_settings)
+        actions_layout.addWidget(self.reset_btn)
+        actions_layout.addWidget(self.apply_btn)
+        settings_layout.addLayout(actions_layout)
         
         left_scroll.setWidget(settings_container)
         left_side_layout.addWidget(left_scroll)
@@ -592,15 +432,16 @@ class LinuxHelloGUI(QMainWindow):
         
         feed_group = QGroupBox("Security Monitor")
         feed_layout = QVBoxLayout()
-        self.image_label = QLabel("System Standby")
+        self.image_label = QLabel("SYSTEM STANDBY")
         self.image_label.setAlignment(Qt.AlignCenter)
         self.image_label.setMinimumSize(450, 350)
-        self.image_label.setStyleSheet("""
+        self.image_label.setStyleSheet(f"""
             background-color: #000; 
-            border: 2px solid rgba(0, 176, 244, 0.3); 
-            border-radius: 15px;
-            color: rgba(255, 255, 255, 0.3);
+            border: 1px solid {GLASS_WHITE}; 
+            border-radius: 20px;
+            color: {TEXT_SECONDARY};
             font-weight: bold;
+            letter-spacing: 2px;
         """)
         feed_layout.addWidget(self.image_label)
         
@@ -612,44 +453,43 @@ class LinuxHelloGUI(QMainWindow):
         feed_group.setLayout(feed_layout)
         right_layout.addWidget(feed_group)
         
-        enroll_group = QGroupBox("New Enrollment")
+        enroll_group = QGroupBox("USER ENROLLMENT")
         enroll_layout = QVBoxLayout()
+        enroll_layout.setSpacing(15)
+        
         self.u_input = QLineEdit()
-        self.u_input.setPlaceholderText("Enter System Username")
-        # Auto-fill with system username
+        self.u_input.setPlaceholderText("System Username")
         import getpass
         self.u_input.setText(getpass.getuser())
-        self.u_input.setStyleSheet("padding: 8px; background-color: #40444b; border-radius: 5px;")
+        self.u_input.setMinimumHeight(45)
         enroll_layout.addWidget(self.u_input)
         
-        warning_label = QLabel("⚠️ Important: Name must match your system username exactly.")
-        warning_label.setStyleSheet("color: #ffa000; font-size: 10px;")
-        enroll_layout.addWidget(warning_label)
-        
-        self.auto_capture_cb = QCheckBox("Enable Auto-Capture")
+        self.auto_capture_cb = QCheckBox("SMART AUTO-CAPTURE")
         self.auto_capture_cb.setChecked(True)
-        self.auto_capture_cb.setStyleSheet("color: #00b0f4; font-size: 11px;")
+        self.auto_capture_cb.setStyleSheet(f"color: {ACCENT_CYAN}; font-size: 11px; font-weight: bold;")
         enroll_layout.addWidget(self.auto_capture_cb)
 
-        self.enroll_btn = QPushButton("Access Camera")
-        self.enroll_btn.setMinimumHeight(45)
+        self.enroll_btn = QPushButton(" ACTIVATE SCANNER")
+        self.enroll_btn.setMinimumHeight(50)
         self.enroll_btn.clicked.connect(self.toggle_video)
         enroll_layout.addWidget(self.enroll_btn)
-        self.save_enroll_btn = QPushButton("Capture Signature")
+        
+        self.save_enroll_btn = QPushButton(" CAPTURE SIGNATURE")
         self.save_enroll_btn.setObjectName("primaryBtn")
-        self.save_enroll_btn.setMinimumHeight(50)
+        self.save_enroll_btn.setMinimumHeight(55)
         self.save_enroll_btn.setEnabled(False)
         self.save_enroll_btn.clicked.connect(self.save_identity)
         enroll_layout.addWidget(self.save_enroll_btn)
-        self.enroll_status = QLabel("Ready for scan")
+        
+        self.enroll_status = QLabel("SYSTEM IDLE")
         self.enroll_status.setAlignment(Qt.AlignCenter)
-        self.enroll_status.setStyleSheet("color: rgba(255, 255, 255, 0.5); padding: 5px;")
+        self.enroll_status.setStyleSheet(f"color: {TEXT_SECONDARY}; padding: 10px; font-size: 11px; letter-spacing: 1px;")
         enroll_layout.addWidget(self.enroll_status)
         enroll_group.setLayout(enroll_layout)
         right_layout.addWidget(enroll_group)
         
-        main_layout.addWidget(left_side, 1)
-        main_layout.addWidget(right_panel, 1)
+        main_layout.addWidget(left_side, 3)
+        main_layout.addWidget(right_panel, 5)
         self.setCentralWidget(main_content)
 
     def start_status_monitoring(self):
@@ -958,7 +798,7 @@ class LinuxHelloGUI(QMainWindow):
                     self.enroll_status.setText(f"<font color='#00b0f4' size='5'><b>LOCKING ON... {remaining:.1f}s</b></font><br><font color='#888888'>(or click button below to skip)</font>")
                 else:
                     print(f"[DEBUG] Auto-capture triggered!")
-                    self.enroll_status.setText("<font color='#03dac6' size='5'><b>SIGNATURE CAPTURED!</b></font>")
+                    self.enroll_status.setText(f"<font color='{ACCENT_TEAL}' size='5'><b>SIGNATURE CAPTURED!</b></font>")
                     # We don't reset face_detect_start_time here yet to prevent instant re-trigger
                     if self.save_identity():
                         self.face_detect_start_time = None
@@ -966,7 +806,7 @@ class LinuxHelloGUI(QMainWindow):
                         # If save failed/cancelled, reset timer so user can try again by looking away/back
                         self.face_detect_start_time = None
             else:
-                self.enroll_status.setText("<font color='#4CAF50' size='4'><b>FACE READY</b></font><br><font color='#888888'>Click 'Capture Signature'</font>")
+                self.enroll_status.setText(f"<font color='{ACCENT_TEAL}' size='4'><b>FACE READY</b></font><br><font color='{TEXT_SECONDARY}'>Click 'Capture Signature'</font>")
         else:
             # Face lost - check grace period
             if self.face_detect_start_time is not None:
@@ -977,14 +817,14 @@ class LinuxHelloGUI(QMainWindow):
                 lost_for = now - self.face_lost_time
                 if lost_for > self.grace_period:
                     print(f"[DEBUG] Grace period expired ({lost_for:.1f}s), resetting timer.")
-                    self.enroll_status.setText("<font color='#f44336'>SEARCHING FOR FACE...</font>")
+                    self.enroll_status.setText(f"<font color='{ERROR_RED}'>SEARCHING FOR FACE...</font>")
                     self.save_enroll_btn.setEnabled(False)
                     self.face_detect_start_time = None
                     self.face_lost_time = None
                 else:
-                    self.enroll_status.setText(f"<font color='#ff9800'><b>STAND STILL (RESCANNING...)</b></font>")
+                    self.enroll_status.setText(f"<font color='{WARNING_GOLD}'><b>STAND STILL (RESCANNING...)</b></font>")
             else:
-                self.enroll_status.setText("<font color='#888888'>POSITION FACE IN FRAME</font>")
+                self.enroll_status.setText(f"<font color='{TEXT_SECONDARY}'>POSITION FACE IN FRAME</font>")
                 self.save_enroll_btn.setEnabled(False)
 
     def save_identity(self):
@@ -1057,16 +897,18 @@ class LinuxHelloGUI(QMainWindow):
         event.accept()
 
 if __name__ == "__main__":
+    from gui.ui.styles import BACKGROUND_COLOR, ACCENT_CYAN
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
+    
     palette = QPalette()
-    bg = QColor(44, 47, 51)
-    palette.setColor(QPalette.Window, bg)
+    palette.setColor(QPalette.Window, QColor(BACKGROUND_COLOR))
     palette.setColor(QPalette.WindowText, Qt.white)
-    palette.setColor(QPalette.Base, QColor(35, 39, 42))
-    palette.setColor(QPalette.Button, QColor(64, 68, 75))
-    palette.setColor(QPalette.Highlight, QColor(0, 176, 244))
+    palette.setColor(QPalette.Base, QColor(SIDEBAR_COLOR))
+    palette.setColor(QPalette.Button, QColor(SIDEBAR_COLOR))
+    palette.setColor(QPalette.Highlight, QColor(ACCENT_CYAN))
     app.setPalette(palette)
+    
     app.setFont(QFont("Inter", 10))
     window = LinuxHelloGUI()
     window.show()
