@@ -95,6 +95,8 @@ class VideoThread(QThread):
                 
                 self.change_pixmap_signal.emit(q_img)
                 self.face_detected_signal.emit(detected, face_obj)
+            else:
+                self.face_detected_signal.emit(False, None)
             
             self.msleep(10)
         
@@ -172,9 +174,11 @@ class LinuxHelloGUI(QMainWindow):
         self.last_known_pam_state = None # To prevent loops
         
         # Auto-capture state
-        self.auto_capture_enabled = True # Default to ON for better UX
+        self.auto_capture_enabled = True
         self.face_detect_start_time = None
-        self.capture_delay = 1.5 # seconds
+        self.face_lost_time = None
+        self.capture_delay = 1.6 # Slight increase for better capture quality
+        self.grace_period = 0.6 # seconds to allow for flickers
         
         self.apply_theme()
         self.setup_ui()
@@ -524,6 +528,20 @@ class LinuxHelloGUI(QMainWindow):
         feed_group.setLayout(feed_layout)
         right_layout.addWidget(feed_group)
         
+        enroll_group = QGroupBox("New Enrollment")
+        enroll_layout = QVBoxLayout()
+        self.u_input = QLineEdit()
+        self.u_input.setPlaceholderText("Enter System Username")
+        # Auto-fill with system username
+        import getpass
+        self.u_input.setText(getpass.getuser())
+        self.u_input.setStyleSheet("padding: 8px; background-color: #40444b; border-radius: 5px;")
+        enroll_layout.addWidget(self.u_input)
+        
+        warning_label = QLabel("⚠️ Important: Name must match your system username exactly.")
+        warning_label.setStyleSheet("color: #ffa000; font-size: 10px;")
+        enroll_layout.addWidget(warning_label)
+        
         self.auto_capture_cb = QCheckBox("Enable Auto-Capture")
         self.auto_capture_cb.setChecked(True)
         self.auto_capture_cb.setStyleSheet("color: #00b0f4; font-size: 11px;")
@@ -730,29 +748,48 @@ class LinuxHelloGUI(QMainWindow):
     @Slot(bool, object)
     def on_face_detected(self, detected, face_obj):
         now = time.time()
-        if detected:
+        
+        if detected and face_obj is not None:
             self.current_face_embedding = face_obj.normed_embedding
             self.save_enroll_btn.setEnabled(True)
+            self.face_lost_time = None # Reset lost timer
             
             if self.auto_capture_cb.isChecked():
                 if self.face_detect_start_time is None:
+                    print(f"[DEBUG] Auto-capture timer started at {now}")
                     self.face_detect_start_time = now
                 
                 elapsed = now - self.face_detect_start_time
                 remaining = max(0, self.capture_delay - elapsed)
                 
                 if remaining > 0:
-                    self.enroll_status.setText(f"<font color='#00b0f4'><b>AUTO-CAPTURING IN {remaining:.1f}s...</b></font>")
+                    self.enroll_status.setText(f"<font color='#00b0f4' size='5'><b>LOCKING ON... {remaining:.1f}s</b></font><br><font color='#888888'>(or click button below to skip)</font>")
                 else:
-                    self.enroll_status.setText("<font color='#03dac6'><b>SIGNATURE CAPTURED!</b></font>")
-                    self.face_detect_start_time = None # Reset
-                    self.save_identity() # Trigger auto-save
+                    print(f"[DEBUG] Auto-capture triggered!")
+                    self.enroll_status.setText("<font color='#03dac6' size='5'><b>SIGNATURE CAPTURED!</b></font>")
+                    self.face_detect_start_time = None 
+                    self.save_identity()
             else:
-                self.enroll_status.setText("<font color='#4CAF50'><b>FACE DETECTED</b></font>")
+                self.enroll_status.setText("<font color='#4CAF50' size='4'><b>FACE READY</b></font><br><font color='#888888'>Click 'Capture Signature'</font>")
         else:
-            self.enroll_status.setText("<font color='#f44336'>SEARCHING...</font>")
-            self.save_enroll_btn.setEnabled(False)
-            self.face_detect_start_time = None
+            # Face lost - check grace period
+            if self.face_detect_start_time is not None:
+                if self.face_lost_time is None:
+                    self.face_lost_time = now
+                    print("[DEBUG] Face lost, starting grace period...")
+                
+                lost_for = now - self.face_lost_time
+                if lost_for > self.grace_period:
+                    print(f"[DEBUG] Grace period expired ({lost_for:.1f}s), resetting timer.")
+                    self.enroll_status.setText("<font color='#f44336'>SEARCHING FOR FACE...</font>")
+                    self.save_enroll_btn.setEnabled(False)
+                    self.face_detect_start_time = None
+                    self.face_lost_time = None
+                else:
+                    self.enroll_status.setText(f"<font color='#ff9800'><b>STAND STILL (RESCANNING...)</b></font>")
+            else:
+                self.enroll_status.setText("<font color='#888888'>POSITION FACE IN FRAME</font>")
+                self.save_enroll_btn.setEnabled(False)
 
     def save_identity(self):
         username = self.u_input.text().strip()
@@ -783,26 +820,39 @@ class LinuxHelloGUI(QMainWindow):
                 return
 
         try:
+            print(f"[DEBUG] Ensuring directory exists: {users_dir}")
             os.makedirs(users_dir, exist_ok=True)
             
             # Encrypt the embedding
+            print(f"[DEBUG] Preparing embedding for encryption...")
             buffer = io.BytesIO()
             np.save(buffer, self.current_face_embedding)
-            encrypted_data = encrypt_data(buffer.getvalue())
+            embedding_bytes = buffer.getvalue()
+            print(f"[DEBUG] Embedding size: {len(embedding_bytes)} bytes")
             
+            print(f"[DEBUG] Encrypting data...")
+            encrypted_data = encrypt_data(embedding_bytes)
+            print(f"[DEBUG] Encryption successful, size: {len(encrypted_data)} bytes")
+            
+            print(f"[DEBUG] Writing to file: {path_enc}")
             with open(path_enc, 'wb') as ef:
                 ef.write(encrypted_data)
                 
             # If an old .npy exists, remove it after encryption
             if os.path.exists(path_npy):
+                print(f"[DEBUG] Removing legacy unencrypted file: {path_npy}")
                 os.remove(path_npy)
                 
             self.refresh_users()
             self.stop_video()
             self.u_input.clear()
             self.statusBar().showMessage(f"Identity '{username}' saved successfully! ✅", 3000)
+            print(f"[DEBUG] Enrollment for '{username}' COMPLETED successfully.")
         except Exception as e:
-            QMessageBox.critical(self, "Save Error", f"Could not save identity: {e}")
+            import traceback
+            err_details = traceback.format_exc()
+            print(f"[DEBUG] CRITICAL ERROR DURING SAVE:\n{err_details}")
+            QMessageBox.critical(self, "Save Error", f"Could not save identity: {e}\n\nCheck terminal for full trace.")
 
     def closeEvent(self, event):
         if self.video_thread: self.video_thread.stop()

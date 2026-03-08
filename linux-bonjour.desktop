@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Linux Bonjour
+Comment=Premium AI Face Recognition for Linux
+Exec=linux-bonjour
+Icon=linux-bonjour
+Terminal=false
+Type=Application
+Categories=Settings;Security;Utility;
+Keywords=Face;Unlock;Security;Biometric;
+StartupNotify=true
