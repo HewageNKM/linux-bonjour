@@ -127,7 +127,7 @@ class ScannerOverlay(QWidget):
         
         # Corner brackets
         w, h = self.width(), self.height()
-        pen = QPen(QColor(0, 176, 244, 180), 3)
+        pen = QPen(QColor(233, 84, 32, 180), 3) # Ubuntu Orange
         painter.setPen(pen)
         
         length = 40
@@ -146,9 +146,9 @@ class ScannerOverlay(QWidget):
 
         # Scanning line
         grad = QLinearGradient(0, self.scan_line_y - 10, 0, self.scan_line_y + 10)
-        grad.setColorAt(0, QColor(0, 176, 244, 0))
-        grad.setColorAt(0.5, QColor(0, 176, 244, 150))
-        grad.setColorAt(1, QColor(0, 176, 244, 0))
+        grad.setColorAt(0, QColor(233, 84, 32, 0))    # Ubuntu Orange Transparent
+        grad.setColorAt(0.5, QColor(233, 84, 32, 150)) # Ubuntu Orange Solid
+        grad.setColorAt(1, QColor(233, 84, 32, 0))
         painter.fillRect(0, self.scan_line_y - 10, w, 20, grad)
 
 class LinuxHelloGUI(QMainWindow):
@@ -188,113 +188,111 @@ class LinuxHelloGUI(QMainWindow):
     def apply_theme(self):
         self.setStyleSheet("""
             QMainWindow {
-                background-color: #0c0d10;
+                background-color: #242424;
             }
             QWidget {
-                color: #e0e0e0;
-                font-family: 'Inter', 'Segoe UI', 'Roboto', sans-serif;
+                color: #FFFFFF;
+                font-family: 'Ubuntu', 'Liberation Sans', sans-serif;
             }
             QGroupBox {
                 border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 12px;
+                border-radius: 6px;
                 margin-top: 20px;
                 font-weight: bold;
-                background-color: rgba(255, 255, 255, 0.03);
+                background-color: #2D2D2D;
                 padding: 15px;
             }
             QGroupBox::title {
                 subcontrol-origin: margin;
-                left: 15px;
+                left: 10px;
                 padding: 0 5px;
-                color: #bb86fc;
+                color: #E95420;
             }
             QPushButton {
-                background-color: #1f2128;
+                background-color: #3D3D3D;
                 border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 8px;
+                border-radius: 4px;
                 padding: 10px 15px;
-                font-weight: bold;
+                font-weight: normal;
                 color: #ffffff;
             }
             QPushButton:hover {
-                background-color: #2a2d37;
-                border: 1px solid #00b0f4;
+                background-color: #4D4D4D;
+                border: 1px solid #E95420;
             }
             QPushButton:pressed {
-                background-color: #121419;
+                background-color: #2A2A2A;
             }
             QPushButton#primaryBtn {
-                background-color: #00b0f4;
-                color: #000000;
+                background-color: #E95420;
+                color: #FFFFFF;
                 border: none;
+                font-weight: bold;
             }
             QPushButton#primaryBtn:hover {
-                background-color: #33c0ff;
+                background-color: #FB8C00;
             }
             QPushButton#dangerBtn {
-                background-color: rgba(240, 71, 71, 0.1);
-                border: 1px solid #f04747;
-                color: #f04747;
-            }
-            QPushButton#dangerBtn:hover {
-                background-color: #f04747;
+                background-color: #C62828;
+                border: none;
                 color: white;
             }
+            QPushButton#dangerBtn:hover {
+                background-color: #D32F2F;
+            }
             QLineEdit, QSpinBox, QComboBox {
-                background-color: #16181d;
+                background-color: #3D3D3D;
                 border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 6px;
+                border-radius: 4px;
                 padding: 8px;
                 color: #ffffff;
             }
             QLineEdit:focus, QSpinBox:focus, QComboBox:focus {
-                border: 1px solid #00b0f4;
+                border: 1px solid #E95420;
             }
             QSlider::groove:horizontal {
-                border: 1px solid #1f2128;
-                height: 6px;
-                background: #1f2128;
+                border: none;
+                height: 4px;
+                background: #3D3D3D;
                 margin: 2px 0;
-                border-radius: 3px;
+                border-radius: 2px;
             }
             QSlider::handle:horizontal {
-                background: #00b0f4;
-                border: 1px solid #00b0f4;
-                width: 16px;
-                height: 16px;
-                margin: -6px 0;
-                border-radius: 8px;
+                background: #E95420;
+                border: 1px solid #E95420;
+                width: 14px;
+                height: 14px;
+                margin: -5px 0;
+                border-radius: 7px;
             }
             QListWidget {
-                background-color: #16181d;
+                background-color: #3D3D3D;
                 border: 1px solid rgba(255, 255, 255, 0.05);
-                border-radius: 8px;
+                border-radius: 6px;
                 outline: none;
                 padding: 5px;
             }
             QListWidget::item {
-                padding: 10px;
-                border-radius: 6px;
+                padding: 8px;
+                border-radius: 4px;
                 margin: 2px 5px;
             }
             QListWidget::item:selected {
-                background-color: rgba(0, 176, 244, 0.2);
-                color: #00b0f4;
-                border: 1px solid rgba(0, 176, 244, 0.3);
+                background-color: #E95420;
+                color: #FFFFFF;
             }
             QScrollBar:vertical {
                 border: none;
                 background: transparent;
-                width: 8px;
-                margin: 0px 0px 0px 0px;
+                width: 10px;
             }
             QScrollBar::handle:vertical {
-                background: rgba(255, 255, 255, 0.1);
+                background: #4D4D4D;
                 min-height: 20px;
-                border-radius: 4px;
+                border-radius: 5px;
             }
             QScrollBar::handle:vertical:hover {
-                background: rgba(255, 255, 255, 0.2);
+                background: #5D5D5D;
             }
             QCheckBox {
                 spacing: 10px;
@@ -305,11 +303,11 @@ class LinuxHelloGUI(QMainWindow):
                 height: 18px;
                 border-radius: 4px;
                 border: 1px solid rgba(255, 255, 255, 0.2);
-                background-color: #16181d;
+                background-color: #3D3D3D;
             }
             QCheckBox::indicator:checked {
-                background-color: #00b0f4;
-                image: url(check_mark.png); /* Fallback to styled if no icon */
+                background-color: #E95420;
+                image: url(none);
             }
             QScrollArea {
                 border: none;
@@ -365,12 +363,12 @@ class LinuxHelloGUI(QMainWindow):
             
         header_vbox = QVBoxLayout()
         header = QLabel("Linux Bonjour")
-        header.setFont(QFont("Inter", 24, QFont.Bold))
-        header.setStyleSheet("color: white; letter-spacing: 1px;")
+        header.setFont(QFont("Ubuntu", 24, QFont.Bold))
+        header.setStyleSheet("color: white; letter-spacing: 0px;") # Ubuntu font doesn't need much spacing
         header_vbox.addWidget(header)
         
         self.status_label = QLabel("● Daemon: Checking...")
-        self.status_label.setStyleSheet("color: #ffa000; font-weight: bold; font-size: 11px;")
+        self.status_label.setStyleSheet("color: #ffa000; font-weight: normal; font-size: 11px;") # Normal weight for subtle look
         header_vbox.addWidget(self.status_label)
         header_hbox.addLayout(header_vbox)
         header_hbox.addStretch()
@@ -821,39 +819,29 @@ class LinuxHelloGUI(QMainWindow):
                 return
 
         try:
-            print(f"[DEBUG] Ensuring directory exists: {users_dir}")
             os.makedirs(users_dir, exist_ok=True)
             
             # Encrypt the embedding
-            print(f"[DEBUG] Preparing embedding for encryption...")
             buffer = io.BytesIO()
             np.save(buffer, self.current_face_embedding)
             embedding_bytes = buffer.getvalue()
-            print(f"[DEBUG] Embedding size: {len(embedding_bytes)} bytes")
-            
-            print(f"[DEBUG] Encrypting data...")
             encrypted_data = encrypt_data(embedding_bytes)
-            print(f"[DEBUG] Encryption successful, size: {len(encrypted_data)} bytes")
             
-            print(f"[DEBUG] Writing to file: {path_enc}")
             with open(path_enc, 'wb') as ef:
                 ef.write(encrypted_data)
                 
             # If an old .npy exists, remove it after encryption
             if os.path.exists(path_npy):
-                print(f"[DEBUG] Removing legacy unencrypted file: {path_npy}")
                 os.remove(path_npy)
                 
             self.refresh_users()
             self.stop_video()
             self.u_input.clear()
             self.statusBar().showMessage(f"Identity '{username}' saved successfully! ✅", 3000)
-            print(f"[DEBUG] Enrollment for '{username}' COMPLETED successfully.")
         except Exception as e:
             import traceback
             err_details = traceback.format_exc()
-            print(f"[DEBUG] CRITICAL ERROR DURING SAVE:\n{err_details}")
-            QMessageBox.critical(self, "Save Error", f"Could not save identity: {e}\n\nCheck terminal for full trace.")
+            QMessageBox.critical(self, "Save Error", f"Could not save identity: {e}\n\nCheck logs for full trace.")
 
     def closeEvent(self, event):
         if self.video_thread: self.video_thread.stop()
