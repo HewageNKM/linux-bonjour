@@ -505,7 +505,7 @@ class LinuxHelloGUI(QMainWindow):
         
         config_layout.addWidget(QLabel("<b>AI Model</b>"))
         self.m_combo = QComboBox()
-        self.m_combo.addItems(["buffalo_s", "buffalo_l", "antelopev2"])
+        self.m_combo.addItems(["buffalo_sc", "buffalo_s", "buffalo_l", "antelopev2"])
         self.m_combo.setCurrentText(self.config.get("model_name", "buffalo_s"))
         self.m_combo.currentIndexChanged.connect(self.on_model_selection_changed)
         config_layout.addWidget(self.m_combo)
@@ -832,7 +832,7 @@ class LinuxHelloGUI(QMainWindow):
         models_dir = "/usr/share/linux-bonjour/models/models"
         model_path = os.path.join(models_dir, model_name)
         
-        # Models that are NOT downloaded by default
+        # Models that are NOT downloaded by default (buffalo_sc and buffalo_s are now defaults)
         heavy_models = ["buffalo_l", "antelopev2"]
         
         if model_name in heavy_models and not os.path.exists(model_path):

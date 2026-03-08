@@ -11,7 +11,8 @@ def init_models():
     print(f"Initializing AI models in {models_dir}...")
     
     # Default to small model for fastest installation
-    models = ["buffalo_s"]
+    # Package all confirmed working models for v0.7
+    models = ["buffalo_sc", "buffalo_s", "buffalo_l", "antelopev2"]
     
     for model_name in models:
         max_retries = 2
@@ -24,6 +25,23 @@ def init_models():
                 print(f"✅ {model_name} ready.")
                 break # Success
             except Exception as e:
+                # Handle nested directory structure common in some models (e.g. antelopev2)
+                import shutil
+                model_base = os.path.join(models_dir, "models", model_name)
+                nested_path = os.path.join(model_base, model_name)
+                if os.path.exists(nested_path) and os.path.isdir(nested_path):
+                    print(f"🔧 Fixing nested directory structure for {model_name}...")
+                    for item in os.listdir(nested_path):
+                        shutil.move(os.path.join(nested_path, item), os.path.join(model_base, item))
+                    os.rmdir(nested_path)
+                    # Retry immediately if we fixed it
+                    try:
+                        app = FaceAnalysis(name=model_name, root=models_dir, providers=['CPUExecutionProvider'])
+                        app.prepare(ctx_id=0, det_size=(320, 320))
+                        print(f"✅ {model_name} ready (after fix).")
+                        break
+                    except: pass
+
                 import traceback
                 print(f"⚠️  Try {attempt+1} failed for {model_name}: {e}")
                 traceback.print_exc()
