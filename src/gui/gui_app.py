@@ -216,6 +216,7 @@ class LinuxHelloGUI(QMainWindow):
         self.face_lost_time = None
         self.capture_delay = 1.6 # Slight increase for better capture quality
         self.grace_period = 0.6 # seconds to allow for flickers
+        self.is_saving = False # Flag to prevent auto-capture re-trigger during dialogs
         
         self.apply_theme()
         self.setup_ui()
@@ -939,6 +940,12 @@ class LinuxHelloGUI(QMainWindow):
             self.face_lost_time = None # Reset lost timer
             
             if self.auto_capture_cb.isChecked():
+                # Check for username BEFORE starting timer to prevent loop
+                if not self.u_input.text().strip():
+                    self.enroll_status.setText("<font color='#ffa000'><b>ENTER USERNAME TO START</b></font>")
+                    self.face_detect_start_time = None
+                    return
+                
                 if self.face_detect_start_time is None:
                     print(f"[DEBUG] Auto-capture timer started at {now}")
                     self.face_detect_start_time = now
@@ -951,8 +958,12 @@ class LinuxHelloGUI(QMainWindow):
                 else:
                     print(f"[DEBUG] Auto-capture triggered!")
                     self.enroll_status.setText("<font color='#03dac6' size='5'><b>SIGNATURE CAPTURED!</b></font>")
-                    self.face_detect_start_time = None 
-                    self.save_identity()
+                    # We don't reset face_detect_start_time here yet to prevent instant re-trigger
+                    if self.save_identity():
+                        self.face_detect_start_time = None
+                    else:
+                        # If save failed/cancelled, reset timer so user can try again by looking away/back
+                        self.face_detect_start_time = None
             else:
                 self.enroll_status.setText("<font color='#4CAF50' size='4'><b>FACE READY</b></font><br><font color='#888888'>Click 'Capture Signature'</font>")
         else:
@@ -976,20 +987,26 @@ class LinuxHelloGUI(QMainWindow):
                 self.save_enroll_btn.setEnabled(False)
 
     def save_identity(self):
+        if self.is_saving: return False
+        self.is_saving = True
+        
         username = self.u_input.text().strip()
         if not username:
             QMessageBox.warning(self, "Validation Error", "Please enter a username.")
-            return
+            self.is_saving = False
+            return False
 
         # Sanitize username (alphanumeric, underscores, hyphens)
         import re
         if not re.match(r"^[a-zA-Z0-9_-]+$", username):
             QMessageBox.warning(self, "Validation Error", "Username contains illegal characters.\nOnly alphanumeric, underscores, and hyphens are allowed.")
-            return
+            self.is_saving = False
+            return False
 
         if self.current_face_embedding is None:
             QMessageBox.warning(self, "No Face Detected", "Please start the live capture and look at the camera first.")
-            return
+            self.is_saving = False
+            return False
 
         users_dir = os.path.join(PROJECT_ROOT, self.config.get("users_dir", "config/users"))
         path_enc = os.path.join(users_dir, f"{username}.enc")
@@ -1001,7 +1018,8 @@ class LinuxHelloGUI(QMainWindow):
                                        f"An identity named '{username}' already exists. Overwrite it?",
                                        QMessageBox.Yes | QMessageBox.No)
             if reply == QMessageBox.No:
-                return
+                self.is_saving = False
+                return False
 
         try:
             os.makedirs(users_dir, exist_ok=True)
@@ -1023,10 +1041,14 @@ class LinuxHelloGUI(QMainWindow):
             self.stop_video()
             self.u_input.clear()
             self.statusBar().showMessage(f"Identity '{username}' saved successfully! ✅", 3000)
+            self.is_saving = False
+            return True
         except Exception as e:
             import traceback
             err_details = traceback.format_exc()
             QMessageBox.critical(self, "Save Error", f"Could not save identity: {e}\n\nCheck logs for full trace.")
+            self.is_saving = False
+            return False
 
     def closeEvent(self, event):
         if self.video_thread: self.video_thread.stop()
