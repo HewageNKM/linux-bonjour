@@ -28,31 +28,6 @@ class StatusWorker(QThread):
     status_signal = Signal(bool)
     pam_status_signal = Signal(bool)
     granular_status_signal = Signal(dict)
-    
-class ModelDownloadWorker(QThread):
-    finished = Signal(bool, str)
-    progress = Signal(str)
-
-    def __init__(self, model_names):
-        super().__init__()
-        self.model_names = model_names
-
-    def run(self):
-        try:
-            from daemon.init_models import init_models
-            # We patch init_models temporarily or just call it if it's flexible
-            # Actually, let's just use the logic from it
-            models_dir = "/usr/share/linux-bonjour/models"
-            from insightface.app import FaceAnalysis
-            
-            for model_name in self.model_names:
-                self.progress.emit(f"Downloading {model_name}...")
-                app = FaceAnalysis(name=model_name, root=models_dir, providers=['CPUExecutionProvider'])
-                app.prepare(ctx_id=0, det_size=(320, 320))
-            
-            self.finished.emit(True, "All selected models are ready! ✅")
-        except Exception as e:
-            self.finished.emit(False, f"Download failed: {e}")
 
     def __init__(self):
         super().__init__()
@@ -91,6 +66,31 @@ class ModelDownloadWorker(QThread):
     def stop(self):
         self._run_flag = False
         self.wait()
+
+class ModelDownloadWorker(QThread):
+    finished = Signal(bool, str)
+    progress = Signal(str)
+
+    def __init__(self, model_names):
+        super().__init__()
+        self.model_names = model_names
+
+    def run(self):
+        try:
+            from daemon.init_models import init_models
+            # We patch init_models temporarily or just call it if it's flexible
+            # Actually, let's just use the logic from it
+            models_dir = "/usr/share/linux-bonjour/models"
+            from insightface.app import FaceAnalysis
+            
+            for model_name in self.model_names:
+                self.progress.emit(f"Downloading {model_name}...")
+                app = FaceAnalysis(name=model_name, root=models_dir, providers=['CPUExecutionProvider'])
+                app.prepare(ctx_id=0, det_size=(320, 320))
+            
+            self.finished.emit(True, "All selected models are ready! ✅")
+        except Exception as e:
+            self.finished.emit(False, f"Download failed: {e}")
 
 class VideoThread(QThread):
     change_pixmap_signal = Signal(QImage)
