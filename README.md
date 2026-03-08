@@ -10,6 +10,8 @@
 - **Unified Management Console**: A premium **PySide6 (Qt)** desktop app with a Discord-inspired dark theme for configuration and identity management.
 - **Live AI Feedback**: Real-time camera feed with face detection bounding boxes, landmark overlays, and instant "ready-to-save" status.
 - **Hardware Sovereignty**: Full control over camera selection (Index and Type: IR/RGB/AUTO) directly from the GUI.
+- **Graphical Daemon Control**: Built-in "Start/Restart" service management with automatic persistence (Systemd enforcement).
+- **Global Face Unlock**: Flexible authentication mode allowing any enrolled face to unlock the system (optional).
 - **Zero-Setup Deployment**: One-click toggle in the GUI or a single terminal command to enable/disable security for Login, Sudo, and Lock Screen.
 - **Hot-Reloading Support**: Switch between **four AI models** (from lightweight `buffalo_s` to ultra-precise `antelopev2`) instantly without restarting services.
 - **Identity Management**: Professional CRUD operations for user face profiles with high-fidelity visual feedback.
@@ -58,7 +60,10 @@ Use the **"Dashboard"** to monitor daemon status and system security. The **"New
 
 ### 2. Enable System-wide Face Unlock
 
-Enable/disable biometric security for your **Login, Sudo, and Lock Screen** directly in the GUI settings or via the terminal:
+Enable biometric security for your **Login, Sudo, and Lock Screen** directly in the GUI settings.
+
+- **Standard Mode**: Matches your camera feed against your specific system username.
+- **Global Unlock**: Enable this in the GUI to allow *any* person in your face database to authenticate for *any* user.
 
 ```bash
 # GUI Method: Toggle the "Enable Face Unlock" checkbox (requires password)
