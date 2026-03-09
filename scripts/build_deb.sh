@@ -36,7 +36,7 @@ mkdir -p pkg/lib/systemd/system
 # Generate DEB Metadata
 cat <<EOF > pkg/DEBIAN/control
 Package: linux-bonjour
-Version: 1.2.3
+Version: 1.2.4
 Section: utils
 Priority: optional
 Architecture: amd64
@@ -54,7 +54,7 @@ set -e
 BASE_DIR="/usr/share/linux-bonjour"
 VENV="\$BASE_DIR/venv"
 MODELS_DIR="\$BASE_DIR/models"
-echo "Configuring Linux Bonjour v1.2.3 Universal..."
+echo "Configuring Linux Bonjour v1.2.4 Universal..."
 
 # 1. Setup Virtual Environment
 if [ ! -d "\$VENV" ]; then
@@ -110,7 +110,7 @@ echo "Activating face recognition system-wide..."
 bash \$BASE_DIR/scripts/setup_pam.sh --enable-all
 
 echo "------------------------------------------------"
-echo "Linux Bonjour v1.2.3 Installed Successfully! 🎉"
+echo "Linux Bonjour v1.2.4 Installed Successfully! 🎉"
 echo "NOTE: Group changes may require a logout/login."
 echo "Hardware permissions and udev rules activated."
 echo "------------------------------------------------"

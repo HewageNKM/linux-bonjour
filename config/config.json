@@ -10,5 +10,6 @@
     "global_unlock": false,
     "pam_logging": true,
     "search_duration": 3.5,
-    "logging_enabled": true
+    "logging_enabled": true,
+    "system_enabled": true
 }

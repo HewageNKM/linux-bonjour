@@ -34,6 +34,12 @@ class SettingsView(QWidget):
         # 1. System Security
         sys_group = QGroupBox("SYSTEM SECURITY")
         sys_layout = QVBoxLayout()
+
+        self.system_enabled_toggle = QCheckBox("MASTER SYSTEM SWITCH")
+        self.system_enabled_toggle.setStyleSheet(f"font-weight: bold; font-size: 14px; color: #ffffff; background: {ACCENT_CYAN}; padding: 10px; border-radius: 5px;")
+        self.system_enabled_toggle.setToolTip("Enable or disable the entire Linux Bonjour biometric system instantly.")
+        sys_layout.addWidget(self.system_enabled_toggle)
+        sys_layout.addSpacing(10)
         
         self.pam_toggle = QCheckBox("GLOBAL FACE UNLOCK")
         self.pam_toggle.setStyleSheet(f"font-weight: bold; color: {ACCENT_CYAN};")
@@ -205,6 +211,7 @@ class SettingsView(QWidget):
 
     def emit_config(self):
         config = {
+            "system_enabled": self.system_enabled_toggle.isChecked(),
             "threshold": self.t_slider.value() / 100,
             "model_name": self.m_combo.currentText(),
             "camera_type": self.cam_type_combo.currentText(),
@@ -216,6 +223,7 @@ class SettingsView(QWidget):
         self.config_changed.emit(config)
 
     def update_ui_from_config(self, config):
+        self.system_enabled_toggle.setChecked(config.get("system_enabled", True))
         self.t_slider.setValue(int(config.get("threshold", 0.45) * 100))
         self.m_combo.setCurrentText(config.get("model_name", "buffalo_s"))
         self.cam_type_combo.setCurrentText(config.get("camera_type", "AUTO"))

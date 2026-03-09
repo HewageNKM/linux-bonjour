@@ -114,6 +114,25 @@ unsafe fn get_max_retries() -> i32 {
     }
 }
 
+unsafe fn is_system_enabled() -> bool {
+    let mut stream = match UnixStream::connect(SOCKET_PATH) {
+        Ok(s) => s,
+        Err(_) => return true,
+    };
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(1)));
+    if stream.write_all(b"GET_CONFIG system_enabled").is_err() {
+        return true;
+    }
+    let mut buffer = [0; 16];
+    match stream.read(&mut buffer) {
+        Ok(n) if n > 0 => {
+            let val = String::from_utf8_lossy(&buffer[..n]).to_lowercase();
+            val.trim() == "true"
+        }
+        _ => true,
+    }
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn pam_sm_authenticate(
     pamh: *const PamHandle,
@@ -121,6 +140,11 @@ pub unsafe extern "C" fn pam_sm_authenticate(
     _argc: libc::c_int,
     _argv: *const *const libc::c_char,
 ) -> libc::c_int {
+    // 0. Global Kill-Switch Check
+    if !is_system_enabled() {
+        return PamReturnCode::AUTH_ERR as libc::c_int;
+    }
+
     // 1. Get username
     let mut user_ptr: *const libc::c_char = ptr::null();
     let res = pam_sys::get_user(&*pamh, &mut user_ptr, ptr::null());
