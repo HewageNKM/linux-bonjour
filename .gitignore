@@ -24,6 +24,12 @@ config/*.npy
 config/users/
 models/
 
+# Build Artifacts
+*.deb
+pkg/
+pkg_build/
+linux-bonjour_*.deb
+
 # System/IDE
 .DS_Store
 .vscode/
