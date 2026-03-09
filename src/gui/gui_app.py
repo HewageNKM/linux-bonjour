@@ -2,6 +2,7 @@ import sys
 import os
 import time
 import json
+import io
 import psutil
 import subprocess
 import numpy as np
@@ -10,7 +11,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QLabel, QSlider, QSpinBox, QPushButton, 
                              QGroupBox, QLineEdit, QListWidget, QProgressBar,
                               QListWidgetItem, QMessageBox, QFrame, QComboBox,
-                             QScrollArea, QCheckBox, QStackedWidget, QListWidget)
+                             QScrollArea, QCheckBox, QStackedWidget, QListWidget, QSizePolicy)
 from PySide6.QtCore import Qt, QTimer, Slot, QThread, Signal, QSize
 from PySide6.QtGui import QFont, QPalette, QColor, QImage, QPixmap, QLinearGradient, QBrush
 
@@ -98,9 +99,28 @@ class ModelDownloadWorker(QThread):
         except Exception as e:
             self.finished.emit(False, f"Download failed: {e}")
 
+class RestartWorker(QThread):
+    finished = Signal(bool, str)
+
+    def __init__(self, command):
+        super().__init__()
+        self.command = command
+
+    def run(self):
+        try:
+            # Use a longer timeout for pkexec/systemctl restarts
+            res = subprocess.run(self.command, capture_output=True, text=True, timeout=15)
+            if res.returncode == 0:
+                self.finished.emit(True, "Service restarted successfully.")
+            else:
+                self.finished.emit(False, res.stderr or res.stdout)
+        except Exception as e:
+            self.finished.emit(False, str(e))
+
 class VideoThread(QThread):
     change_pixmap_signal = Signal(QImage)
     face_detected_signal = Signal(bool, object) # detected, face_obj
+    status_msg_signal = Signal(str)
 
     def __init__(self, config):
         super().__init__()
@@ -109,32 +129,72 @@ class VideoThread(QThread):
         self.model_name = config.get("model_name", "buffalo_s")
         self.app = None
 
-    def run(self):
-        # Initialize AI inside thread
-        if not self.app:
-            try:
-                self.app = FaceAnalysis(name=self.model_name, providers=['CPUExecutionProvider'])
-                self.app.prepare(ctx_id=0, det_size=(320, 320))
-            except Exception as e:
-                print(f"Error initializing FaceAnalysis: {e}")
-                self.app = None
+    def is_model_ready(self, model_name=None):
+        """Check if model files exist and aren't being actively written (rudimentary check)."""
+        target_model = model_name or self.model_name
+        models_base = "/usr/share/linux-bonjour/models/models"
+        model_path = os.path.join(models_base, target_model)
+        
+        if not os.path.exists(model_path):
+            return False
+            
+        # Insightface models usually have at least 2-3 files (.onnx, etc)
+        try:
+            files = os.listdir(model_path)
+            # Most models have ~5 files, SC has 2.
+            if len(files) < 2:
+                return False
+            
+            # Check for the primary detection file
+            if not os.path.exists(os.path.join(model_path, "det_500m.onnx")):
+                return False
+                
+            return True
+        except:
+            return False
 
+    def run(self):
+        # 1. Open Camera Immediately for instant feedback
+        self.status_msg_signal.emit("Connecting to Camera...")
         cam = IRCamera(config=self.config)
+        
+        # 2. Main Loop
+        retry_count = 0
+        self.status_msg_signal.emit("Preview Active")
         while self._run_flag:
             frame = cam.get_frame()
             if frame is not None:
-                faces = self.app.get(frame)
-                detected = len(faces) > 0
-                
-                # Draw on frame
-                display_frame = frame.copy()
+                # 3. Check/Initialize AI in background without blocking
+                if not self.app:
+                    if self.is_model_ready():
+                        self.status_msg_signal.emit("Initializing AI Engine...")
+                        try:
+                            models_dir = "/usr/share/linux-bonjour/models"
+                            self.app = FaceAnalysis(name=self.model_name, root=models_dir, providers=['CPUExecutionProvider'])
+                            self.app.prepare(ctx_id=0, det_size=(320, 320))
+                            self.status_msg_signal.emit("AI Engine Active")
+                        except Exception as e:
+                            self.status_msg_signal.emit(f"AI Loading...")
+                    else:
+                        if retry_count % 100 == 0:
+                            self.status_msg_signal.emit(f"Downloading Models ({self.model_name})...")
+                        retry_count += 1
+
+                # 4. Processing
+                detected = False
                 face_obj = None
-                if detected:
-                    face_obj = faces[0]
-                    bbox = face_obj.bbox.astype(int)
-                    cv2.rectangle(display_frame, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (0, 255, 0), 2)
-                    cv2.putText(display_frame, f"Face Detected", (bbox[0], bbox[1]-10), 
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+                display_frame = frame.copy()
+
+                if self.app:
+                    try:
+                        faces = self.app.get(frame)
+                        detected = len(faces) > 0
+                        if detected:
+                            face_obj = faces[0]
+                            bbox = face_obj.bbox.astype(int)
+                            cv2.rectangle(display_frame, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (0, 255, 0), 2)
+                    except:
+                        pass
                 
                 # Convert to QImage (RGB for Qt)
                 height, width, channel = display_frame.shape
@@ -146,7 +206,7 @@ class VideoThread(QThread):
             else:
                 self.face_detected_signal.emit(False, None)
             
-            self.msleep(10)
+            self.msleep(30) # ~33 FPS
         
         cam.release()
 
@@ -295,7 +355,28 @@ class LinuxBonjourGUI(QMainWindow):
             self.sidebar.addItem(item)
         
         self.sidebar.currentRowChanged.connect(self.on_nav_changed)
-        main_layout.addWidget(self.sidebar)
+        
+        # v1.2.0 Fullscreen Toggle Button at Sidebar Bottom
+        spacer = QWidget()
+        spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        
+        self.fs_btn = QPushButton(" 📺  FULLSCREEN ")
+        self.fs_btn.setObjectName("secondaryBtn")
+        self.fs_btn.setMinimumHeight(50)
+        self.fs_btn.clicked.connect(self.toggle_fullscreen)
+        
+        sidebar_layout = QVBoxLayout()
+        sidebar_layout.setContentsMargins(10, 20, 10, 20)
+        sidebar_layout.addWidget(self.sidebar)
+        sidebar_layout.addStretch()
+        sidebar_layout.addWidget(self.fs_btn)
+        
+        sidebar_container = QWidget()
+        sidebar_container.setLayout(sidebar_layout)
+        sidebar_container.setFixedWidth(250)
+        sidebar_container.setObjectName("sidebarContainer")
+        
+        main_layout.addWidget(sidebar_container)
 
         # 2. MAIN CONTENT AREA
         container = QWidget()
@@ -337,7 +418,10 @@ class LinuxBonjourGUI(QMainWindow):
         self.settings_view.pam_toggle_requested.connect(self.on_pam_toggle_changed)
         self.settings_view.granular_toggle_requested.connect(self.on_granular_toggle_changed)
         self.settings_view.download_requested.connect(self.download_heavy_models)
+        self.settings_view.m_combo.currentTextChanged.connect(self.on_model_selection_changed)
         self.settings_view.reset_requested.connect(self.reset_settings)
+        self.settings_view.probe_requested.connect(self.probe_camera)
+        self.settings_view.fix_perms_requested.connect(self.fix_permissions)
         
         # Initial Data Fill
         self.sidebar.setCurrentRow(0)
@@ -367,11 +451,18 @@ class LinuxBonjourGUI(QMainWindow):
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_F11:
-            if self.isFullScreen():
-                self.showNormal()
-            else:
-                self.showFullScreen()
+            self.toggle_fullscreen()
+        elif event.key() == Qt.Key_Escape and self.isFullScreen():
+            self.showNormal()
         super().keyPressEvent(event)
+
+    def toggle_fullscreen(self):
+        if self.isFullScreen():
+            self.showNormal()
+            self.statusBar().showMessage("Window Mode", 2000)
+        else:
+            self.showFullScreen()
+            self.statusBar().showMessage("Fullscreen Mode (Press F11 or Esc to exit)", 3000)
 
     def start_status_monitoring(self):
         self.status_thread = StatusWorker()
@@ -556,23 +647,27 @@ class LinuxBonjourGUI(QMainWindow):
         
         # Critical: Restart daemon if model or logging changed
         if new_model != old_model:
-            self.statusBar().showMessage("Restarting service for new AI engine...", 5000)
-            subprocess.run(["pkexec", "systemctl", "restart", "linux-bonjour"], check=False)
+            self.statusBar().showMessage("Scheduling service restart for new AI engine...", 5000)
+            self.restart_worker = RestartWorker(["pkexec", "systemctl", "restart", "linux-bonjour"])
+            self.restart_worker.finished.connect(self.on_restart_finished)
+            self.restart_worker.start()
 
         self.statusBar().showMessage("Configuration Applied! ✨", 3000)
         QMessageBox.information(self, "Settings Saved", "System configuration has been successfully updated and applied.")
+
+    def on_restart_finished(self, success, message):
+        if success:
+            self.statusBar().showMessage("Service Restarted! ✅", 3000)
+        else:
+            if "polkit" not in message.lower():
+                self.statusBar().showMessage(f"Restart Failed: {message}", 5000)
 
     def on_model_selection_changed(self, index):
         self.update_model_download_button_visibility()
 
     def update_model_download_button_visibility(self):
         model_name = self.settings_view.m_combo.currentText()
-        models_dir = "/usr/share/linux-bonjour/models/models"
-        model_path = os.path.join(models_dir, model_name)
-        
-        heavy_models = ["buffalo_l", "antelopev2"]
-        
-        if model_name in heavy_models and not os.path.exists(model_path):
+        if not self.video_thread.is_model_ready(model_name):
             self.settings_view.download_btn.show()
             self.settings_view.download_btn.setText(f"☁️ Download {model_name}")
         else:
@@ -644,6 +739,7 @@ class LinuxBonjourGUI(QMainWindow):
         self.video_thread = VideoThread(self.config)
         self.video_thread.change_pixmap_signal.connect(self.update_image)
         self.video_thread.face_detected_signal.connect(self.on_face_detected)
+        self.video_thread.status_msg_signal.connect(lambda msg: self.enrollment_view.status_label.setText(msg))
         self.video_thread.start()
 
     def stop_video(self):
@@ -732,11 +828,27 @@ class LinuxBonjourGUI(QMainWindow):
         view = self.enrollment_view
         if username is None:
             username = view.u_input.text().strip()
-            
+        
         if not username:
-            QMessageBox.warning(self, "Validation Error", "Please enter a username.")
+            QMessageBox.warning(self, "Invalid Name", "Please enter a valid identity name.")
             self.is_saving = False
             return False
+
+        # v1.2.0 Validation: Ensure system user exists
+        import pwd
+        try:
+            pwd.getpwnam(username)
+        except KeyError:
+            reply = QMessageBox.question(self, "Unknown User", 
+                                        f"The user '{username}' was not found on this system.\n\n"
+                                        "Biometric auth only works for existing Ubuntu accounts.\n"
+                                        "Do you want to save this profile anyway?",
+                                        QMessageBox.Yes | QMessageBox.No)
+            if reply == QMessageBox.No:
+                self.is_saving = False
+                return False
+
+        model_name = self.config.get("model_name", "buffalo_s")
 
         # Sanitize username (Linux standard: lowercase, starts with letter/underscore)
         import re
@@ -751,16 +863,6 @@ class LinuxBonjourGUI(QMainWindow):
             QMessageBox.warning(self, "Invalid Username", "Username is too long (max 32 characters).")
             self.is_saving = False
             return False
-
-        # System User Verification
-        if not view.check_system_user(username):
-            reply = QMessageBox.question(self, "User Not Found", 
-                                       f"The user '{username}' does not appear to exist on this system.\n\n"
-                                       "Do you want to create an identity for this name anyway?",
-                                       QMessageBox.Yes | QMessageBox.No)
-            if reply == QMessageBox.No:
-                self.is_saving = False
-                return False
 
         if self.current_face_embedding is None:
             QMessageBox.warning(self, "No Face Detected", "Please start the live capture and look at the camera first.")
@@ -809,13 +911,75 @@ class LinuxBonjourGUI(QMainWindow):
             err_details = traceback.format_exc()
             QMessageBox.critical(self, "Save Error", f"Could not save identity: {e}\n\nCheck logs for full trace.")
             
-            # Critical: stop auto-capture on error to prevent infinite loops of popups
-            if view.auto_capture_cb.isChecked():
-                view.auto_capture_cb.setChecked(False)
-                self.statusBar().showMessage("Auto-capture disabled due to error", 5000)
-                
             self.is_saving = False
             return False
+
+    def probe_camera(self):
+        self.settings_view.log_area.setText("🔍 Probing hardware...")
+        self.settings_view.log_area.setStyleSheet("color: #00b0f4;")
+        
+        try:
+            # 1. Check /dev/video devices
+            if not os.path.exists('/dev'):
+                self.settings_view.log_area.setText("❌ /dev/ not found!")
+                return
+
+            videos = [f for f in os.listdir('/dev') if f.startswith('video')]
+            if not videos:
+                self.settings_view.log_area.setText("❌ No camera devices found in /dev/")
+                self.settings_view.log_area.setStyleSheet("color: #ff5555;")
+                return
+
+            # 2. Check Permissions
+            import stat
+            problematic = []
+            for v in videos:
+                path = f"/dev/{v}"
+                try:
+                    st = os.stat(path)
+                    mode = st.st_mode
+                    # Check if group readable/writable
+                    if not (mode & stat.S_IRGRP and mode & stat.S_IWGRP):
+                        problematic.append(v)
+                except:
+                    problematic.append(v)
+            
+            if problematic:
+                self.settings_view.log_area.setText(f"⚠️ Permission issue on: {', '.join(problematic)}")
+                self.settings_view.log_area.setStyleSheet("color: #ffaa00;")
+            else:
+                self.settings_view.log_area.setText(f"✅ Hardware OK: Found {len(videos)} devices with correct access.")
+                self.settings_view.log_area.setStyleSheet("color: #55ff55;")
+                
+        except Exception as e:
+            self.settings_view.log_area.setText(f"❌ Probe Failed: {str(e)}")
+            self.settings_view.log_area.setStyleSheet("color: #ff5555;")
+
+    def fix_permissions(self):
+        reply = QMessageBox.question(self, "Fix Permissions", 
+                                   "This will attempt to reset hardware rules and add your user to the 'video' and 'render' groups.\n\n"
+                                   "This requires administrative privileges. Proceed?",
+                                   QMessageBox.Yes | QMessageBox.No)
+        if reply == QMessageBox.No: return
+
+        self.settings_view.log_area.setText("🛠️ Applying fixes...")
+        
+        try:
+            user = os.getenv("USER") or os.getenv("SUDO_USER")
+            if not user:
+                import getpass
+                user = getpass.getuser()
+
+            # Execute via pkexec for root privileges
+            cmd = f"pkexec bash -c 'gpasswd -a {user} video && gpasswd -a {user} render && udevadm control --reload-rules && udevadm trigger'"
+            
+            subprocess.Popen(cmd, shell=True)
+            self.settings_view.log_area.setText("✅ Fix commands sent. Please REBOOT for group changes to take effect.")
+            self.settings_view.log_area.setStyleSheet("color: #55ff55;")
+            QMessageBox.information(self, "Fix Applied", "Hardware permission fixes have been triggered.\n\nIMPORTANT: You MUST log out and log back in (or reboot) for group changes to take effect.")
+        except Exception as e:
+            self.settings_view.log_area.setText(f"❌ Fix Failed: {str(e)}")
+            self.settings_view.log_area.setStyleSheet("color: #ff5555;")
 
     def closeEvent(self, event):
         if self.video_thread: self.video_thread.stop()

@@ -1,6 +1,6 @@
 [Desktop Entry]
 Name=Linux Bonjour
-Comment=Premium AI Face Recognition for Linux
+Comment=AI Face Recognition for Linux
 Exec=linux-bonjour
 Icon=linux-bonjour
 Terminal=false

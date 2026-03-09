@@ -33,7 +33,7 @@ enable_service() {
         echo "Already enabled in $(basename "$file")"
     else
         echo "Enabling in $(basename "$file")..."
-        # Insert at the top
+        # Insert at the top as sufficient
         sed -i "1i auth sufficient $PAM_MODULE" "$file"
     fi
 }
@@ -51,7 +51,7 @@ disable_service() {
 }
 
 check_status() {
-    echo "--- Linux Bonjour PAM Status ---"
+    # This script is idempotent: it can be run multiple times safely.
     SERVICES=("$COMMON_AUTH" "$GDM_AUTH" "$SDDM_AUTH" "/etc/pam.d/lightdm" "/etc/pam.d/sudo" "/etc/pam.d/polkit-1" "/etc/pam.d/su")
     for f in "${SERVICES[@]}"; do
         if [ -f "$f" ]; then

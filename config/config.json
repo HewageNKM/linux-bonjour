@@ -1,11 +1,14 @@
 {
     "socket_path": "/run/linux-bonjour.sock",
-    "model_name": "buffalo_l",
-    "threshold": 0.5,
+    "model_name": "buffalo_sc",
+    "threshold": 0.45,
     "users_dir": "config/users",
     "cooldown_time": 60,
     "max_failures": 3,
     "camera_index": null,
     "camera_type": "AUTO",
-    "global_unlock": false
+    "global_unlock": false,
+    "pam_logging": true,
+    "search_duration": 3.5,
+    "logging_enabled": true
 }

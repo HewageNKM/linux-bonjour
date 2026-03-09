@@ -6,19 +6,26 @@ from insightface.app import FaceAnalysis
 def init_models(target_dir=None):
     if target_dir:
         models_dir = target_dir
-    elif len(sys.argv) > 1:
-        models_dir = sys.argv[1]
     else:
-        models_dir = "/usr/share/linux-bonjour/models"
+        # Check if first arg is a directory, otherwise default models_dir
+        if len(sys.argv) > 1 and os.path.sep in sys.argv[1]:
+            models_dir = sys.argv[1]
+            requested_models = sys.argv[2:]
+        else:
+            models_dir = "/usr/share/linux-bonjour/models"
+            requested_models = sys.argv[1:]
     
     if not os.path.exists(models_dir):
         os.makedirs(models_dir, exist_ok=True)
     
     print(f"Initializing AI models in {models_dir}...")
     
-    # Default to small model for fastest installation
-    # Package all confirmed working models for v0.7
-    models = ["buffalo_sc", "buffalo_s", "buffalo_l", "antelopev2"]
+    # Models to initialize
+    if requested_models:
+        models = requested_models
+    else:
+        # Default models (essential for first run)
+        models = ["buffalo_sc", "buffalo_s"]
     
     for model_name in models:
         # Optimization: Quick check if model is already present

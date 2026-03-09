@@ -11,7 +11,29 @@ const SOCKET_PATH: &str = "/run/linux-bonjour.sock";
 const PAM_ERROR_MSG: libc::c_int = 3;
 const PAM_TEXT_INFO: libc::c_int = 4;
 
-unsafe fn send_message(pamh: *const PamHandle, msg_style: libc::c_int, text: &str) {
+unsafe fn is_pam_logging_enabled() -> bool {
+    let mut stream = match UnixStream::connect(SOCKET_PATH) {
+        Ok(s) => s,
+        Err(_) => return true,
+    };
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(1)));
+    if stream.write_all(b"GET_CONFIG pam_logging").is_err() {
+        return true;
+    }
+    let mut buffer = [0; 16];
+    match stream.read(&mut buffer) {
+        Ok(n) if n > 0 => {
+            let val = String::from_utf8_lossy(&buffer[..n]).to_lowercase();
+            val.trim() == "true"
+        }
+        _ => true,
+    }
+}
+
+unsafe fn send_message(pamh: *const PamHandle, msg_style: libc::c_int, text: &str, force: bool) {
+    if !force && !is_pam_logging_enabled() {
+        return;
+    }
     let mut conv_ptr: *const libc::c_void = ptr::null();
     if pam_sys::get_item(&*pamh, pam_sys::PamItemType::CONV, &mut conv_ptr) != PamReturnCode::SUCCESS || conv_ptr.is_null() {
         return;
@@ -61,12 +83,35 @@ unsafe fn prompt_retry(pamh: *const PamHandle, text: &str) -> bool {
                 let response = CStr::from_ptr(resp.resp).to_string_lossy().to_lowercase();
                 libc::free(resp.resp as *mut libc::c_void);
                 libc::free(resp_ptr as *mut libc::c_void);
-                return response.is_empty() || response.starts_with('y');
+                // Return true ONLY if explicitly started with 'y'
+                return response.starts_with('y');
             }
             libc::free(resp_ptr as *mut libc::c_void);
         }
     }
     false
+}
+
+unsafe fn get_max_retries() -> i32 {
+    let mut stream = match UnixStream::connect(SOCKET_PATH) {
+        Ok(s) => s,
+        Err(_) => return 2, // Default: 3 attempts total (0, 1, 2)
+    };
+    
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(1)));
+    if stream.write_all(b"GET_CONFIG max_failures").is_err() {
+        return 2;
+    }
+    
+    let mut buffer = [0; 16];
+    match stream.read(&mut buffer) {
+        Ok(n) if n > 0 => {
+            let val_str = String::from_utf8_lossy(&buffer[..n]);
+            let max_f = val_str.trim().parse::<i32>().unwrap_or(3);
+            if max_f < 1 { 0 } else { max_f - 1 }
+        }
+        _ => 2,
+    }
 }
 
 #[no_mangle]
@@ -86,18 +131,18 @@ pub unsafe extern "C" fn pam_sm_authenticate(
     
     let username = CStr::from_ptr(user_ptr).to_string_lossy();
     let mut retries = 0;
-    const MAX_RETRIES: i32 = 2; // Total 3 attempts
+    let max_retries = get_max_retries();
 
     loop {
         // Provide visual feedback
         send_message(pamh, PAM_TEXT_INFO, &format!("🛡️ Linux Bonjour: Scanning for {}...{}", 
-            username, if retries > 0 { format!(" (Attempt {})", retries + 1) } else { "".to_string() }));
+            username, if retries > 0 { format!(" (Attempt {})", retries + 1) } else { "".to_string() }), false);
 
         // 2. Connect to Daemon
         let mut stream = match UnixStream::connect(SOCKET_PATH) {
             Ok(s) => s,
             Err(_) => {
-                send_message(pamh, PAM_ERROR_MSG, "❌ Linux Bonjour: Daemon not responding.");
+                // If daemon is down, fail silently to allow password fallback immediately
                 return PamReturnCode::AUTHINFO_UNAVAIL as libc::c_int;
             }
         };
@@ -114,7 +159,7 @@ pub unsafe extern "C" fn pam_sm_authenticate(
                 Ok(n) if n > 0 => {
                     let response = String::from_utf8_lossy(&buffer[..n]);
                     if response.trim() == "SUCCESS" {
-                        send_message(pamh, PAM_TEXT_INFO, "✅ Linux Bonjour: Face Recognized!");
+                        send_message(pamh, PAM_TEXT_INFO, "✅ Linux Bonjour: Face Recognized!", false);
                         return PamReturnCode::SUCCESS as libc::c_int;
                     }
                 }
@@ -123,17 +168,23 @@ pub unsafe extern "C" fn pam_sm_authenticate(
         }
 
         retries += 1;
-        if retries > MAX_RETRIES {
+        if retries > max_retries {
+            send_message(pamh, PAM_ERROR_MSG, "❌ Max attempts reached. Falling back to password...", false);
             break;
         }
 
-        // 6. Ask to Try Again
-        if !prompt_retry(pamh, "\n❌ Recognition Failed. Try face recognition again? [Y/n]: ") {
+        // 6. Ask to Try Again - Improved Prompt
+        if !is_pam_logging_enabled() || !prompt_retry(pamh, "\n❌ Face not recognized. Try again? [Y/n]: ") {
+            if !is_pam_logging_enabled() {
+                // No message needed, just exit loop
+            } else {
+                send_message(pamh, PAM_TEXT_INFO, "Skipping... falling back to password.", false);
+            }
             break;
         }
     }
 
-    send_message(pamh, PAM_ERROR_MSG, "❌ Linux Bonjour: Authentication Failed.");
+    send_message(pamh, PAM_ERROR_MSG, "❌ Linux Bonjour: Authentication Failed.", false);
     PamReturnCode::AUTH_ERR as libc::c_int
 }
 

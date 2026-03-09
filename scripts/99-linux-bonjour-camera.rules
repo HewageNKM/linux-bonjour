@@ -1,0 +1,4 @@
+# Linux Bonjour Camera Access Rules
+# Grant video group access to all video nodes and render nodes for AI acceleration
+KERNEL=="video*", GROUP="video", MODE="0660"
+KERNEL=="renderD*", GROUP="render", MODE="0660"

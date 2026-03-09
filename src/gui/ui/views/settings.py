@@ -11,6 +11,8 @@ class SettingsView(QWidget):
     granular_toggle_requested = Signal(str, bool)
     download_requested = Signal(str)
     reset_requested = Signal()
+    probe_requested = Signal()
+    fix_perms_requested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -131,10 +133,14 @@ class SettingsView(QWidget):
         adv_group = QGroupBox("ADVANCED & DEBUG")
         adv_layout = QVBoxLayout()
         
-        # Logging Toggle
+        # Logging Toggles
         self.log_toggle = QCheckBox("ENABLE ACTIVITY LOGS")
         self.log_toggle.setToolTip("Record authentication attempts and errors to /usr/share/linux-bonjour/daemon.log for troubleshooting.")
         adv_layout.addWidget(self.log_toggle)
+
+        self.pam_log_toggle = QCheckBox("ENABLE CONSOLE FEEDBACK")
+        self.pam_log_toggle.setToolTip("Show scanning status and retry prompts directly in the console/login screen.")
+        adv_layout.addWidget(self.pam_log_toggle)
         
         # Auth Throttling
         throttle_layout = QHBoxLayout()
@@ -155,6 +161,31 @@ class SettingsView(QWidget):
         
         adv_group.setLayout(adv_layout)
         container_layout.addWidget(adv_group)
+
+        # 5. Troubleshooting & Support
+        ts_group = QGroupBox("TROUBLESHOOTING & SUPPORT")
+        ts_layout = QVBoxLayout()
+        ts_layout.addWidget(QLabel("If the camera preview is black or the system isn't unlocking, try these tools:"))
+        
+        ts_btn_layout = QHBoxLayout()
+        self.probe_btn = QPushButton("🔍 PROBE CAMERA")
+        self.probe_btn.setToolTip("Test camera availability and permissions.")
+        self.probe_btn.clicked.connect(self.probe_requested.emit)
+        
+        self.fix_btn = QPushButton("🛠️ FIX PERMISSIONS")
+        self.fix_btn.setToolTip("Re-apply hardware access rules (requires sudo).")
+        self.fix_btn.clicked.connect(self.fix_perms_requested.emit)
+        
+        ts_btn_layout.addWidget(self.probe_btn)
+        ts_btn_layout.addWidget(self.fix_btn)
+        ts_layout.addLayout(ts_btn_layout)
+        
+        self.log_area = QLabel("System Status: Idle")
+        self.log_area.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 11px; padding-top: 10px;")
+        ts_layout.addWidget(self.log_area)
+        
+        ts_group.setLayout(ts_layout)
+        container_layout.addWidget(ts_group)
 
         # Save Actions
         actions = QHBoxLayout()
@@ -178,6 +209,7 @@ class SettingsView(QWidget):
             "model_name": self.m_combo.currentText(),
             "camera_type": self.cam_type_combo.currentText(),
             "logging_enabled": self.log_toggle.isChecked(),
+            "pam_logging": self.pam_log_toggle.isChecked(),
             "max_failures": self.max_fail_spin.value(),
             "cooldown_time": self.cooldown_spin.value()
         }
@@ -188,5 +220,6 @@ class SettingsView(QWidget):
         self.m_combo.setCurrentText(config.get("model_name", "buffalo_s"))
         self.cam_type_combo.setCurrentText(config.get("camera_type", "AUTO"))
         self.log_toggle.setChecked(config.get("logging_enabled", True))
+        self.pam_log_toggle.setChecked(config.get("pam_logging", True))
         self.max_fail_spin.setValue(config.get("max_failures", 3))
         self.cooldown_spin.setValue(config.get("cooldown_time", 60))

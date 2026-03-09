@@ -51,9 +51,24 @@ class FaceDaemon:
         
         # Load model with specified provider in global models directory
         models_dir = os.path.join(BASE_DIR, "models")
-        self.app = FaceAnalysis(name=self.config['model_name'], root=models_dir, providers=['CPUExecutionProvider'])
-        self.app.prepare(ctx_id=0, det_size=(320, 320))
         
+        # v1.1.10: Handle race condition with model download (postinst or background)
+        max_retries = 60 # 2 minutes total wait
+        for i in range(max_retries):
+            try:
+                self.app = FaceAnalysis(name=self.config['model_name'], root=models_dir, providers=['CPUExecutionProvider'])
+                self.app.prepare(ctx_id=0, det_size=(320, 320))
+                print(f"AI Engine '{self.config['model_name']}' loaded successfully.")
+                break
+            except Exception as e:
+                if i < max_retries - 1:
+                    if i % 5 == 0:
+                        print(f"Model '{self.config['model_name']}' not ready yet. Waiting... ({i+1}/{max_retries})")
+                    time.sleep(2)
+                else:
+                    print(f"CRITICAL: Model initialization failed: {e}")
+                    raise
+
         # Initialize camera with configuration
         self.cam = IRCamera(config=self.config)
              
@@ -150,6 +165,7 @@ class FaceDaemon:
         start_verify = time.time()
         max_duration = float(self.config.get("search_duration", 3.5))
         attempt = 0
+        consecutive_cam_fails = 0
         
         # Non-blocking check for connection status
         conn.setblocking(False)
@@ -170,8 +186,16 @@ class FaceDaemon:
             attempt += 1
             frame = self.cam.get_frame()
             if frame is None:
+                consecutive_cam_fails += 1
+                if consecutive_cam_fails > 10:
+                    log_event(f"AUTH FAILED: Camera hardware failure (10 consecutive null frames).", 
+                              enabled=self.config.get('logging_enabled', True))
+                    conn.setblocking(True)
+                    self.cam.release()
+                    return False
                 time.sleep(0.1)
                 continue
+            consecutive_cam_fails = 0 # Reset on success
 
             faces = self.app.get(frame)
             if not faces:
@@ -250,6 +274,12 @@ class FaceDaemon:
                     self.config = new_config
                     result = "SUCCESS" if self.verify(username, conn) else "FAILURE"
                     conn.sendall(result.encode())
+                elif raw_request.startswith("GET_CONFIG "):
+                    key = raw_request.split(" ", 1)[1]
+                    # Reload config for latest value
+                    conf = load_config()
+                    val = str(conf.get(key, ""))
+                    conn.sendall(val.encode())
             except Exception as e:
                 print(f"Error handling request: {e}")
             finally:
