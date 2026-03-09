@@ -227,12 +227,13 @@ class FaceDaemon:
             conn, _ = server.accept()
             try:
                 raw_request = conn.recv(1024).decode().strip()
-                log_event(f"DEBUG: Received request: '{raw_request}'")
                 if raw_request.startswith("AUTH "):
                     username = raw_request.split(" ", 1)[1]
                     
                     # Reload config on each auth attempt for live changes
                     new_config = load_config()
+                    log_event(f"DEBUG: Received request for {username}", 
+                              enabled=new_config.get('logging_enabled', True))
                     
                     # Hot-reload model if it changed in config
                     if new_config.get('model_name') != self.config.get('model_name'):

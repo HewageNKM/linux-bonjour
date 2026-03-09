@@ -18,8 +18,19 @@ cd "$PROJECT_ROOT"
 
 # 2. Stage Files
 echo "Staging files..."
-# Clean and recreate staging area
+# Clean and recreate staging area (except models to save time)
+find pkg -maxdepth 1 -not -name 'DEBIAN' -not -name 'pkg' -not -name 'usr' -exec rm -rf {} + 2>/dev/null || true
+mkdir -p pkg/usr/bin
+# Preserve existing models if they were already staged
+if [ -d "pkg/usr/share/linux-bonjour/models" ]; then
+    echo "Staging models from existing cache..."
+    mv pkg/usr/share/linux-bonjour/models ./models_tmp
+fi
 rm -rf pkg/usr pkg/etc
+mkdir -p pkg/usr/share/linux-bonjour
+if [ -d "./models_tmp" ]; then
+    mv ./models_tmp pkg/usr/share/linux-bonjour/models
+fi
 mkdir -p pkg/lib/x86_64-linux-gnu/security
 mkdir -p pkg/usr/bin
 mkdir -p pkg/usr/share/linux-bonjour/src
@@ -40,14 +51,18 @@ cp src/gui/assets/logo.png pkg/usr/share/linux-bonjour/logo.png
 
 # 3. Pre-download AI Models into Package
 echo "Pre-downloading AI models into package (this will take a while but speed up installation)..."
-# Use existing venv if available to run the script
 MODELS_STAGING="$PKG_ROOT/usr/share/linux-bonjour/models"
 mkdir -p "$MODELS_STAGING"
-if [ -f "$PROJECT_ROOT/venv/bin/python" ]; then
-    "$PROJECT_ROOT/venv/bin/python" "$PROJECT_ROOT/src/daemon/init_models.py" "$MODELS_STAGING"
-else
-    python3 "$PROJECT_ROOT/src/daemon/init_models.py" "$MODELS_STAGING"
+
+# Ensure we have a working environment for downloading
+if [ ! -d "venv_build" ]; then
+    echo "Creating temporary build environment..."
+    python3 -m venv venv_build
+    ./venv_build/bin/pip install --upgrade pip
+    ./venv_build/bin/pip install -r requirements.txt
 fi
+
+./venv_build/bin/python src/daemon/init_models.py "$MODELS_STAGING"
 
 # Create the wrapper script
 cat <<EOF > pkg/usr/bin/linux-bonjour

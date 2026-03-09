@@ -21,6 +21,12 @@ def init_models(target_dir=None):
     models = ["buffalo_sc", "buffalo_s", "buffalo_l", "antelopev2"]
     
     for model_name in models:
+        # Optimization: Quick check if model is already present
+        model_ready_marker = os.path.join(models_dir, "models", model_name, "det_500m.onnx")
+        if os.path.exists(model_ready_marker):
+            print(f"✨ {model_name} already exists and is initialized. Skipping.")
+            continue
+
         max_retries = 2
         for attempt in range(max_retries + 1):
             try:

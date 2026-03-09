@@ -127,6 +127,35 @@ class SettingsView(QWidget):
         hw_group.setLayout(hw_layout)
         container_layout.addWidget(hw_group)
 
+        # 4. Advanced & Debug
+        adv_group = QGroupBox("ADVANCED & DEBUG")
+        adv_layout = QVBoxLayout()
+        
+        # Logging Toggle
+        self.log_toggle = QCheckBox("ENABLE ACTIVITY LOGS")
+        self.log_toggle.setToolTip("Record authentication attempts and errors to /usr/share/linux-bonjour/daemon.log for troubleshooting.")
+        adv_layout.addWidget(self.log_toggle)
+        
+        # Auth Throttling
+        throttle_layout = QHBoxLayout()
+        throttle_layout.addWidget(QLabel("MAX FAILURES"))
+        self.max_fail_spin = QSpinBox()
+        self.max_fail_spin.setRange(1, 10)
+        self.max_fail_spin.setToolTip("Number of failed attempts before temporary lockout.")
+        throttle_layout.addWidget(self.max_fail_spin)
+        
+        throttle_layout.addSpacing(20)
+        throttle_layout.addWidget(QLabel("GRACE PERIOD (sec)"))
+        self.cooldown_spin = QSpinBox()
+        self.cooldown_spin.setRange(10, 300)
+        self.cooldown_spin.setSingleStep(10)
+        self.cooldown_spin.setToolTip("Duration of the lockout cooling period after max failures.")
+        throttle_layout.addWidget(self.cooldown_spin)
+        adv_layout.addLayout(throttle_layout)
+        
+        adv_group.setLayout(adv_layout)
+        container_layout.addWidget(adv_group)
+
         # Save Actions
         actions = QHBoxLayout()
         self.reset_btn = QPushButton("RESTORE DEFAULTS")
@@ -147,7 +176,10 @@ class SettingsView(QWidget):
         config = {
             "threshold": self.t_slider.value() / 100,
             "model_name": self.m_combo.currentText(),
-            "camera_type": self.cam_type_combo.currentText()
+            "camera_type": self.cam_type_combo.currentText(),
+            "logging_enabled": self.log_toggle.isChecked(),
+            "max_failures": self.max_fail_spin.value(),
+            "cooldown_time": self.cooldown_spin.value()
         }
         self.config_changed.emit(config)
 
@@ -155,3 +187,6 @@ class SettingsView(QWidget):
         self.t_slider.setValue(int(config.get("threshold", 0.45) * 100))
         self.m_combo.setCurrentText(config.get("model_name", "buffalo_s"))
         self.cam_type_combo.setCurrentText(config.get("camera_type", "AUTO"))
+        self.log_toggle.setChecked(config.get("logging_enabled", True))
+        self.max_fail_spin.setValue(config.get("max_failures", 3))
+        self.cooldown_spin.setValue(config.get("cooldown_time", 60))

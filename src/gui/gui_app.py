@@ -553,6 +553,12 @@ class LinuxBonjourGUI(QMainWindow):
         self.config.update(new_config)
         self.save_config()
         self.refresh_users()
+        
+        # Critical: Restart daemon if model or logging changed
+        if new_model != old_model:
+            self.statusBar().showMessage("Restarting service for new AI engine...", 5000)
+            subprocess.run(["pkexec", "systemctl", "restart", "linux-bonjour"], check=False)
+
         self.statusBar().showMessage("Configuration Applied! ✨", 3000)
         QMessageBox.information(self, "Settings Saved", "System configuration has been successfully updated and applied.")
 
