@@ -3,8 +3,14 @@ import sys
 import time
 from insightface.app import FaceAnalysis
 
-def init_models():
-    models_dir = "/usr/share/linux-bonjour/models"
+def init_models(target_dir=None):
+    if target_dir:
+        models_dir = target_dir
+    elif len(sys.argv) > 1:
+        models_dir = sys.argv[1]
+    else:
+        models_dir = "/usr/share/linux-bonjour/models"
+    
     if not os.path.exists(models_dir):
         os.makedirs(models_dir, exist_ok=True)
     

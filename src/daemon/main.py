@@ -60,7 +60,8 @@ class FaceDaemon:
         print(f"FaceDaemon initialized with {self.cam.camera_type} camera at index {self.cam.index}")
         
         if not os.path.exists(self.config['users_dir']):
-            os.makedirs(self.config['users_dir'])
+            os.makedirs(self.config['users_dir'], mode=0o777, exist_ok=True)
+            os.chmod(self.config['users_dir'], 0o777)
 
         self.failed_attempts = {}
 
@@ -240,9 +241,10 @@ class FaceDaemon:
                         self.app = FaceAnalysis(name=new_config['model_name'], root=models_dir, providers=['CPUExecutionProvider'])
                         self.app.prepare(ctx_id=0, det_size=(320, 320))
                         
-                        # Ensure new model directory exists
+                        # Ensure new model directory exists and is writable
                         if not os.path.exists(new_config['users_dir']):
-                            os.makedirs(new_config['users_dir'], exist_ok=True)
+                            os.makedirs(new_config['users_dir'], mode=0o777, exist_ok=True)
+                            os.chmod(new_config['users_dir'], 0o777)
                     
                     self.config = new_config
                     result = "SUCCESS" if self.verify(username, conn) else "FAILURE"

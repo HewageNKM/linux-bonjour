@@ -9,3 +9,4 @@ tqdm
 pydantic
 pydantic-core
 onnx
+cryptography

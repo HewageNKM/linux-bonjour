@@ -37,7 +37,17 @@ cp src/daemon/*.py pkg/usr/share/linux-bonjour/src/daemon/
 cp -r src/gui pkg/usr/share/linux-bonjour/src/
 cp -r scripts config requirements.txt pkg/usr/share/linux-bonjour/
 cp src/gui/assets/logo.png pkg/usr/share/linux-bonjour/logo.png
-# Note: models will be downloaded by init_models.py during postinst or first run
+
+# 3. Pre-download AI Models into Package
+echo "Pre-downloading AI models into package (this will take a while but speed up installation)..."
+# Use existing venv if available to run the script
+MODELS_STAGING="$PKG_ROOT/usr/share/linux-bonjour/models"
+mkdir -p "$MODELS_STAGING"
+if [ -f "$PROJECT_ROOT/venv/bin/python" ]; then
+    "$PROJECT_ROOT/venv/bin/python" "$PROJECT_ROOT/src/daemon/init_models.py" "$MODELS_STAGING"
+else
+    python3 "$PROJECT_ROOT/src/daemon/init_models.py" "$MODELS_STAGING"
+fi
 
 # Create the wrapper script
 cat <<EOF > pkg/usr/bin/linux-bonjour

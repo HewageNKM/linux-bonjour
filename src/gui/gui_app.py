@@ -480,6 +480,7 @@ class LinuxBonjourGUI(QMainWindow):
             self.refresh_pam_status() # Revert
             return
 
+        self.pam_updating = True
         command = f"--{'enable' if current_bool else 'disable'}-{service}"
         try:
             script_path = os.path.join(PROJECT_ROOT, "scripts", "setup_pam.sh")
@@ -488,9 +489,12 @@ class LinuxBonjourGUI(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Elevation Failed", f"Could not update {service} security: {e}")
             self.refresh_pam_status()
+        finally:
+            self.pam_updating = False
 
     def has_face_data(self):
-        users_dir = os.path.join(PROJECT_ROOT, self.config.get("users_dir", "config/users"))
+        model_name = self.config.get("model_name", "buffalo_s")
+        users_dir = os.path.join(PROJECT_ROOT, self.config.get("users_dir", "config/users"), model_name)
         return os.path.exists(users_dir) and any(f.endswith(".npy") or f.endswith(".enc") for f in os.listdir(users_dir))
 
     def on_start_daemon(self):
@@ -798,6 +802,12 @@ class LinuxBonjourGUI(QMainWindow):
             import traceback
             err_details = traceback.format_exc()
             QMessageBox.critical(self, "Save Error", f"Could not save identity: {e}\n\nCheck logs for full trace.")
+            
+            # Critical: stop auto-capture on error to prevent infinite loops of popups
+            if view.auto_capture_cb.isChecked():
+                view.auto_capture_cb.setChecked(False)
+                self.statusBar().showMessage("Auto-capture disabled due to error", 5000)
+                
             self.is_saving = False
             return False
 
