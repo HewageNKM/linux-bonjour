@@ -36,16 +36,13 @@ class EnrollmentView(QWidget):
         list_layout.addWidget(self.del_btn)
         
         list_group.setLayout(list_layout)
-        layout.addWidget(list_group, 2)
-
         # 1.5 Camera Preview (Small)
         self.image_label = QLabel("STANDBY")
         self.image_label.setAlignment(Qt.AlignCenter)
         self.image_label.setFixedSize(320, 240)
         self.image_label.setToolTip("Live preview of the biometric scanner.")
         self.image_label.setStyleSheet(f"background-color: #000; border-radius: 10px; border: 1px solid {GLASS_WHITE};")
-        layout.addWidget(self.image_label, alignment=Qt.AlignCenter)
-
+        
         # 2. Enrollment Form
         enroll_group = QGroupBox("NEW SIGNATURE")
         enroll_layout = QVBoxLayout()
@@ -84,7 +81,16 @@ class EnrollmentView(QWidget):
         enroll_layout.addWidget(self.status_label)
         
         enroll_group.setLayout(enroll_layout)
-        layout.addWidget(enroll_group, 3)
+
+        # Main Layout Assembly
+        layout.addWidget(self.image_label, alignment=Qt.AlignCenter)
+
+        bottom_container = QHBoxLayout()
+        bottom_container.setSpacing(20)
+        bottom_container.addWidget(list_group, 1)
+        bottom_container.addWidget(enroll_group, 1)
+        
+        layout.addLayout(bottom_container)
 
     def on_delete(self):
         item = self.user_list.currentItem()

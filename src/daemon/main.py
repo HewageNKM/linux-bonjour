@@ -18,9 +18,12 @@ def load_config():
     try:
         with open(CONFIG_PATH, 'r') as f:
             conf = json.load(f)
-            # Ensure users_dir is absolute
+            # Ensure users_dir is absolute and points to the model subdirectory
+            model_name = conf.get('model_name', 'buffalo_s')
             if not conf['users_dir'].startswith('/'):
-                conf['users_dir'] = os.path.join(BASE_DIR, conf['users_dir'])
+                conf['users_dir'] = os.path.join(BASE_DIR, conf['users_dir'], model_name)
+            else:
+                conf['users_dir'] = os.path.join(conf['users_dir'], model_name)
             return conf
     except Exception as e:
         print(f"CRITICAL: Failed to load config from {CONFIG_PATH}: {e}")
@@ -28,7 +31,7 @@ def load_config():
         return {
             "threshold": 0.45,
             "model_name": "buffalo_s",
-            "users_dir": os.path.join(BASE_DIR, "config/users"),
+            "users_dir": os.path.join(BASE_DIR, "config/users/buffalo_s"),
             "socket_path": "/run/linux-bonjour.sock"
         }
 
@@ -61,7 +64,7 @@ class FaceDaemon:
 
         self.failed_attempts = {}
 
-    def verify(self, username):
+    def get_targets(self, username):
         # 1. Check for Throttling
         now = time.time()
         if username in self.failed_attempts:
@@ -132,6 +135,7 @@ class FaceDaemon:
             try:
                 targets.append(("Owner", np.load("config/owner.npy")))
             except: pass
+        return targets
 
     def verify(self, username, conn):
         targets = self.get_targets(username)
@@ -191,6 +195,7 @@ class FaceDaemon:
                               enabled=self.config.get('logging_enabled', True))
                     self.failed_attempts[username] = (0, 0) # Reset on success
                     conn.setblocking(True)
+                    self.cam.release()
                     return True
             
             time.sleep(0.05) # Brief pause between frames
@@ -202,6 +207,7 @@ class FaceDaemon:
         now = time.time()
         self.failed_attempts[username] = (count + 1, now)
         conn.setblocking(True)
+        self.cam.release()
         return False
 
     def run(self):
@@ -233,6 +239,10 @@ class FaceDaemon:
                         models_dir = os.path.join(BASE_DIR, "models")
                         self.app = FaceAnalysis(name=new_config['model_name'], root=models_dir, providers=['CPUExecutionProvider'])
                         self.app.prepare(ctx_id=0, det_size=(320, 320))
+                        
+                        # Ensure new model directory exists
+                        if not os.path.exists(new_config['users_dir']):
+                            os.makedirs(new_config['users_dir'], exist_ok=True)
                     
                     self.config = new_config
                     result = "SUCCESS" if self.verify(username, conn) else "FAILURE"

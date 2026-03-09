@@ -359,9 +359,11 @@ class LinuxBonjourGUI(QMainWindow):
         else:
             self.scanner_overlay.hide()
 
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self.sync_overlay_size()
+    def sync_overlay_size(self):
+        if hasattr(self, 'scanner_overlay'):
+            parent = self.scanner_overlay.parentWidget()
+            if parent:
+                self.scanner_overlay.resize(parent.size())
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_F11:
@@ -546,6 +548,7 @@ class LinuxBonjourGUI(QMainWindow):
 
         self.config.update(new_config)
         self.save_config()
+        self.refresh_users()
         self.statusBar().showMessage("Configuration Applied! ✨", 3000)
         QMessageBox.information(self, "Settings Saved", "System configuration has been successfully updated and applied.")
 
@@ -585,7 +588,8 @@ class LinuxBonjourGUI(QMainWindow):
             self.statusBar().showMessage(message, 5000)
         
     def refresh_users(self):
-        users_dir = os.path.join(PROJECT_ROOT, self.config.get("users_dir", "config/users"))
+        model_name = self.config.get("model_name", "buffalo_s")
+        users_dir = os.path.join(PROJECT_ROOT, self.config.get("users_dir", "config/users"), model_name)
         users = set()
         if os.path.exists(users_dir):
             try:
@@ -599,8 +603,10 @@ class LinuxBonjourGUI(QMainWindow):
     def delete_user(self, username):
         if not username: return
         if QMessageBox.question(self, 'Delete', f"Delete {username}?") == QMessageBox.Yes:
-            path_enc = os.path.join(PROJECT_ROOT, self.config.get("users_dir", "config/users"), f"{username}.enc")
-            path_npy = os.path.join(PROJECT_ROOT, self.config.get("users_dir", "config/users"), f"{username}.npy")
+            model_name = self.config.get("model_name", "buffalo_s")
+            users_dir = os.path.join(PROJECT_ROOT, self.config.get("users_dir", "config/users"), model_name)
+            path_enc = os.path.join(users_dir, f"{username}.enc")
+            path_npy = os.path.join(users_dir, f"{username}.npy")
             
             deleted = False
             if os.path.exists(path_enc):
@@ -650,7 +656,7 @@ class LinuxBonjourGUI(QMainWindow):
         if not size_dash.isEmpty():
             scaled = pixmap.scaled(size_dash, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             label_dash.setPixmap(scaled)
-            self.scanner_overlay.resize(size_dash)
+            self.sync_overlay_size()
         
         # Update Enrollment (Small Preview)
         label_enroll = self.enrollment_view.image_label
@@ -751,7 +757,8 @@ class LinuxBonjourGUI(QMainWindow):
             self.is_saving = False
             return False
 
-        users_dir = os.path.join(PROJECT_ROOT, self.config.get("users_dir", "config/users"))
+        model_name = self.config.get("model_name", "buffalo_s")
+        users_dir = os.path.join(PROJECT_ROOT, self.config.get("users_dir", "config/users"), model_name)
         path_enc = os.path.join(users_dir, f"{username}.enc")
         path_npy = os.path.join(users_dir, f"{username}.npy")
 
