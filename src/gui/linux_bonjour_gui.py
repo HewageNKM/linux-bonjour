@@ -168,14 +168,40 @@ class VideoThread(QThread):
                 # 3. Check/Initialize AI in background without blocking
                 if not self.app:
                     if self.is_model_ready():
-                        self.status_msg_signal.emit("Initializing AI Engine...")
+                        self.status_msg_signal.emit("Initializing Optimized AI...")
                         try:
                             models_dir = "/usr/share/linux-bonjour/models"
-                            self.app = FaceAnalysis(name=self.model_name, root=models_dir, providers=['CPUExecutionProvider'])
+                            model_name = self.model_name
+                            
+                            # Phase 14: Check for INT8 model
+                            int8_path = os.path.join(models_dir, "models", f"{model_name}_int8")
+                            if os.path.exists(int8_path):
+                                model_name = f"{model_name}_int8"
+                            
+                            # Provider Priority (Phase 24: Expanded Support)
+                            providers = [
+                                'OpenVINOExecutionProvider',
+                                'MIGraphXExecutionProvider',
+                                'ROCMExecutionProvider',
+                                'TensorrtExecutionProvider', 
+                                'CUDAExecutionProvider',
+                                'CPUExecutionProvider'
+                            ]
+                            
+                            # TPM Check (for status reporting)
+                            from daemon.crypto_utils import check_tpm_support
+                            tpm_status = check_tpm_support()
+                            tpm_str = "TPM: Active" if tpm_status["active"] else "TPM: Software Only"
+                            
+                            self.app = FaceAnalysis(name=model_name, root=models_dir, providers=providers)
                             self.app.prepare(ctx_id=0, det_size=(320, 320))
-                            self.status_msg_signal.emit("AI Engine Active")
+                            
+                            # Get actual assigned provider
+                            active = self.app.models['detection'].session.get_providers()[0]
+                            engine_name = active.replace('ExecutionProvider','')
+                            self.status_msg_signal.emit(f"AI: {engine_name} | {tpm_str}")
                         except Exception as e:
-                            self.status_msg_signal.emit(f"AI Loading...")
+                            self.status_msg_signal.emit(f"AI Loading Error")
                     else:
                         if retry_count % 100 == 0:
                             self.status_msg_signal.emit(f"Downloading Models ({self.model_name})...")

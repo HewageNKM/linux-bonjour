@@ -30,6 +30,14 @@ def check_tpm_hardware():
 
 HAS_TPM_HARDWARE = check_tpm_hardware() if HAS_TPM_LIB else False
 
+def check_tpm_support():
+    """Returns a status dictionary for GUI/Daemon reporting."""
+    return {
+        "library": HAS_TPM_LIB,
+        "hardware": HAS_TPM_HARDWARE,
+        "active": HAS_TPM_LIB and HAS_TPM_HARDWARE
+    }
+
 SALT_BASE = b"linux-bonjour-salt-v2"
 
 def get_machine_id():
@@ -132,14 +140,19 @@ def decrypt_data(encrypted_data: bytes) -> bytes:
 
     # Step 1: Try the "best" available key (TPM-bound if TPM exists)
     try:
+        # If TPM-derive fails, we catch and fall back to machine-id
         key = derive_key(use_tpm=True)
         aesgcm = AESGCM(key)
         return aesgcm.decrypt(nonce, ciphertext, None)
     except Exception as e:
-        # Step 2: Fallback to machine-id only (if TPM key failed or TPM not available)
+        # Step 2: Graceful fallback to machine-id only (Standard Auto-Detect)
         try:
             key = derive_key(use_tpm=False)
             aesgcm = AESGCM(key)
             return aesgcm.decrypt(nonce, ciphertext, None)
         except:
             raise e
+
+class SecurityError(Exception):
+    """Custom error for hardware-bound security failures."""
+    pass

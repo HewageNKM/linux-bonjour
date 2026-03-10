@@ -2,6 +2,7 @@ import cv2
 import threading
 import time
 import os
+import queue
 
 class Camera:
     _cached_index = None
@@ -18,10 +19,11 @@ class Camera:
             Camera._cached_type = self.camera_type
             
         self.cap = None
-        self.frame = None
         self.stopped = False
-        self.lock = threading.Lock()
         self.thread = None
+        # Use a Queue with maxsize=1 to ensure we always have the freshest frame
+        # and minimize latency (old frames are dropped if new ones arrive).
+        self.frame_queue = queue.Queue(maxsize=1)
 
     def _find_camera(self):
         manual_index = self.config.get("camera_index")
@@ -48,7 +50,7 @@ class Camera:
         self.thread.start()
 
     def _update(self):
-        """Internal thread loop to keep the latest frame in the buffer."""
+        """Internal thread loop (Producer) to keep the latest frame in the queue."""
         while not self.stopped:
             if self.cap is None or not self.cap.isOpened():
                 self.cap = cv2.VideoCapture(self.index)
@@ -62,19 +64,27 @@ class Camera:
 
             ret, frame = self.cap.read()
             if ret:
-                with self.lock:
-                    self.frame = frame
+                # Clear queue if full to ensure freshness (LIFO behavior)
+                if self.frame_queue.full():
+                    try:
+                        self.frame_queue.get_nowait()
+                    except queue.Empty:
+                        pass
+                self.frame_queue.put(frame)
             else:
                 time.sleep(0.1)
 
     def get_frame(self):
-        """Returns the latest frame instantly from the buffer."""
+        """Returns the latest frame (Consumer). Returns None if queue is empty."""
         # Ensure thread is running
         if self.thread is None or not self.thread.is_alive():
             self.start()
             
-        with self.lock:
-            return self.frame
+        try:
+            # Non-blocking get to avoid stalling the caller
+            return self.frame_queue.get_nowait()
+        except queue.Empty:
+            return None
 
     def release(self):
         """Stops the thread and releases hardware."""
@@ -84,6 +94,12 @@ class Camera:
         if self.cap and self.cap.isOpened():
             self.cap.release()
             self.cap = None
+        # Clear the queue
+        while not self.frame_queue.empty():
+            try:
+                self.frame_queue.get_nowait()
+            except queue.Empty:
+                break
 
 # Maintain alias for compatibility
 IRCamera = Camera

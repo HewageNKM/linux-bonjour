@@ -213,41 +213,57 @@ class FaceDaemon:
         self.presence_detector.start()
 
     def _load_ai_engine(self):
-        """Initializes AI Engine with smart Phase 6 GPU fallback."""
+        """Initializes AI Engine with OpenVINO priority and intelligent hardware fallback."""
         model_name = self.config.get('model_name', 'buffalo_l')
         models_dir = os.path.join(BASE_DIR, "models")
         
-        # Phase 6: Multi-Provider Support (Trial order)
+        # Phase 24: Expanded Universal Hardware Support (AMD/NVIDIA/Intel)
+        # Priority: OpenVINO (Intel) -> MIGraphX (AMD) -> ROCM (AMD) -> TensorRT (NVIDIA) -> CUDA (NVIDIA)
+        # users can override this via config.json ["hardware_acceleration_priority"]
         accelerated_providers = [
+            'OpenVINOExecutionProvider',
+            'MIGraphXExecutionProvider',
+            'ROCMExecutionProvider',
             'TensorrtExecutionProvider', 
-            'CUDAExecutionProvider', 
-            'OpenVINOExecutionProvider', 
-            'MIGraphXExecutionProvider'
+            'CUDAExecutionProvider',
         ]
+        print(f"Initializing Optimized AI Engine: {model_name}...")
         
-        print(f"Loading AI Engine: {model_name}...")
-        
-        # Step 1: Try accelerated providers (Short timeout/Instant skip if libs missing)
-        try:
-            # We use a very short trial to see if libraries even load
-            self.app = FaceAnalysis(name=model_name, root=models_dir, providers=accelerated_providers)
-            self.app.prepare(ctx_id=0, det_size=(320, 320))
-            active_providers = self.app.models['detection'].session.get_providers()
-            log_event(f"AI Engine '{model_name}' accelerated: {active_providers}")
-            print(f"AI Engine '{model_name}' accelerated with {active_providers[0]}.")
-            return True
-        except Exception as e:
-            # Step 2: Immediate CPU Fallback
-            log_event(f"AI Engine GPU skip: {e}. Falling back to CPU.")
+        # Step 1: Attempt to find optimized INT8 models (Phase 14)
+        # We prefer _int8 models if they exist in the models directory
+        int8_model_path = os.path.join(models_dir, "models", f"{model_name}_int8")
+        if os.path.exists(int8_model_path):
+            print(f"🚀 Quantized INT8 model detected for {model_name}. Prioritizing OpenVINO.")
+            model_name = f"{model_name}_int8"
+
+        # Step 2: Try accelerated providers (Auto-detection)
+        for provider in accelerated_providers:
             try:
-                self.app = FaceAnalysis(name=model_name, root=models_dir, providers=['CPUExecutionProvider'])
+                print(f"Trying hardware acceleration: {provider}...")
+                self.app = FaceAnalysis(name=model_name, root=models_dir, providers=[provider])
                 self.app.prepare(ctx_id=0, det_size=(320, 320))
-                log_event(f"AI Engine '{model_name}' stable on CPU.")
-                print(f"AI Engine '{model_name}' stable on CPU.")
-                return True
-            except Exception as cpu_e:
-                log_event(f"CRITICAL: Failed to load AI engine even on CPU: {cpu_e}")
-                raise
+                
+                # Verify that the provider was actually assigned
+                assigned_providers = self.app.models['detection'].session.get_providers()
+                if provider in assigned_providers:
+                    log_event(f"AI Engine '{model_name}' ACTIVE on {provider}.")
+                    print(f"✅ AI Engine initialized on {provider}.")
+                    return True
+            except Exception as e:
+                print(f"⚠️ {provider} unavailable: {e}")
+                continue
+
+        # Step 3: Absolute Fallback (CPU)
+        try:
+            log_event(f"AI Engine hardware acceleration failed. Falling back to CPU.")
+            print("Falling back to CPU (Compatibility Mode)...")
+            self.app = FaceAnalysis(name=model_name, root=models_dir, providers=['CPUExecutionProvider'])
+            self.app.prepare(ctx_id=0, det_size=(320, 320))
+            log_event(f"AI Engine '{model_name}' stable on CPU.")
+            return True
+        except Exception as cpu_e:
+            log_event(f"CRITICAL: AI engine failed to load even on CPU: {cpu_e}")
+            raise
         return False
 
     def reload_config(self):
