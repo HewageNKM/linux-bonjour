@@ -25,12 +25,15 @@ def init_models(target_dir=None):
         models = requested_models
     else:
         # Default models (essential for first run)
-        models = ["buffalo_sc", "buffalo_s"]
+        models = ["buffalo_l"]
     
     for model_name in models:
-        # Optimization: Quick check if model is already present
-        model_ready_marker = os.path.join(models_dir, "models", model_name, "det_500m.onnx")
-        if os.path.exists(model_ready_marker):
+        # Optimization: Robust check if model is already present
+        model_base = os.path.join(models_dir, "models", model_name)
+        markers = ["det_500m.onnx", "det_10g.onnx", "det_2g.onnx"]
+        is_ready = any(os.path.exists(os.path.join(model_base, m)) for m in markers)
+        
+        if is_ready:
             print(f"✨ {model_name} already exists and is initialized. Skipping.")
             continue
 

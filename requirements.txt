@@ -1,7 +1,9 @@
 insightface
 opencv-python
 PySide6
-onnxruntime
+onnxruntime-gpu
+onnxruntime-openvino
+dbus-python
 numpy
 psutil
 requests
@@ -10,3 +12,4 @@ pydantic
 pydantic-core
 onnx
 cryptography
+tpm2-pytss

@@ -11,5 +11,26 @@ Restart=on-failure
 RestartSec=5s
 StartLimitIntervalSec=0
 
+# --- Phase 8: Hardened Core (Sandbox) ---
+# Restrictions
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/usr/share/linux-bonjour /run /var/log/linux-bonjour
+PrivateTmp=yes
+DevicePolicy=closed
+DeviceAllow=/dev/video0 rw
+DeviceAllow=/dev/video1 rw
+DeviceAllow=/dev/video2 rw
+DeviceAllow=/dev/video3 rw
+DeviceAllow=/dev/video4 rw
+DeviceAllow=/dev/video5 rw
+DeviceAllow=/dev/video6 rw
+
+# Seccomp Filter (Strict White-listing)
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @obsolete @mount @swap @raw-io @clock
+SystemCallErrorNumber=EPERM
+
 [Install]
 WantedBy=multi-user.target

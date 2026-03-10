@@ -2,8 +2,8 @@
 venv/
 .venv/
 env/
-venv_*
-*_venv/
+venv_build
+*_venv
 
 # Python
 __pycache__/

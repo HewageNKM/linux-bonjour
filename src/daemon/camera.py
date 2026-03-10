@@ -1,52 +1,89 @@
 import cv2
+import threading
+import time
 import os
 
 class Camera:
+    _cached_index = None
+    _cached_type = "AUTO"
+
     def __init__(self, config=None):
         self.config = config or {}
-        self.index, self.camera_type = self._find_camera()
+        if Camera._cached_index is not None:
+            self.index = Camera._cached_index
+            self.camera_type = Camera._cached_type
+        else:
+            self.index, self.camera_type = self._find_camera()
+            Camera._cached_index = self.index
+            Camera._cached_type = self.camera_type
+            
         self.cap = None
+        self.frame = None
+        self.stopped = False
+        self.lock = threading.Lock()
+        self.thread = None
 
     def _find_camera(self):
-        # 0. Check for manual override in config
         manual_index = self.config.get("camera_index")
         if manual_index is not None and manual_index != -1:
-            print(f"Using manual camera override at index {manual_index}")
             return manual_index, self.config.get("camera_type", "AUTO")
 
-        # 1. Try to find an IR camera (priority)
-        for i in [2, 4, 6, 0, 1, 3]: # Expanded list
+        for i in [2, 4, 6, 0, 1, 3]:
             if os.path.exists(f"/dev/video{i}"):
                 cap = cv2.VideoCapture(i)
                 if cap.isOpened():
                     ret, _ = cap.read()
                     cap.release()
                     if ret:
-                        print(f"Detected camera at /dev/video{i}")
                         return i, "AUTO"
         return 0, "UNKNOWN"
 
-    def get_frame(self):
-        if self.cap is None or not self.cap.isOpened():
-            self.cap = cv2.VideoCapture(self.index)
-            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
-            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
-            # Use MJPG if possible for speed
-            self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+    def start(self):
+        """Starts the background thread for continuous frame polling."""
+        if self.thread is not None and self.thread.is_alive():
+            return
+            
+        self.stopped = False
+        self.thread = threading.Thread(target=self._update, daemon=True)
+        self.thread.start()
 
-        ret, frame = self.cap.read()
-        return frame if ret else None
+    def _update(self):
+        """Internal thread loop to keep the latest frame in the buffer."""
+        while not self.stopped:
+            if self.cap is None or not self.cap.isOpened():
+                self.cap = cv2.VideoCapture(self.index)
+                if self.cap.isOpened():
+                    self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
+                    self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
+                    self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+                else:
+                    time.sleep(1.0)
+                    continue
+
+            ret, frame = self.cap.read()
+            if ret:
+                with self.lock:
+                    self.frame = frame
+            else:
+                time.sleep(0.1)
+
+    def get_frame(self):
+        """Returns the latest frame instantly from the buffer."""
+        # Ensure thread is running
+        if self.thread is None or not self.thread.is_alive():
+            self.start()
+            
+        with self.lock:
+            return self.frame
 
     def release(self):
+        """Stops the thread and releases hardware."""
+        self.stopped = True
+        if self.thread:
+            self.thread.join(timeout=1.0)
         if self.cap and self.cap.isOpened():
             self.cap.release()
             self.cap = None
 
 # Maintain alias for compatibility
 IRCamera = Camera
-
-if __name__ == "__main__":
-    # Test if the red lights blink!
-    cam = IRCamera()
-    if cam.get_frame() is not None:
-        print("IR Camera active and Emitters blinking!")

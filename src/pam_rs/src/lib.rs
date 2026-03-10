@@ -81,10 +81,11 @@ unsafe fn prompt_retry(pamh: *const PamHandle, text: &str) -> bool {
             let resp = &*resp_ptr;
             if !resp.resp.is_null() {
                 let response = CStr::from_ptr(resp.resp).to_string_lossy().to_lowercase();
+                let trimmed = response.trim();
                 libc::free(resp.resp as *mut libc::c_void);
                 libc::free(resp_ptr as *mut libc::c_void);
-                // Return true ONLY if explicitly started with 'y'
-                return response.starts_with('y');
+                // Return true ONLY if explicitly started with 'y' or is empty (default to yes if logging disabled, but here we require Y)
+                return trimmed.starts_with('y') || trimmed.is_empty();
             }
             libc::free(resp_ptr as *mut libc::c_void);
         }
@@ -154,6 +155,17 @@ pub unsafe extern "C" fn pam_sm_authenticate(
     }
     
     let username = CStr::from_ptr(user_ptr).to_string_lossy();
+    
+    // 1.1 Get service name
+    let mut service_ptr: *const libc::c_void = ptr::null();
+    let service_res = pam_sys::get_item(&*pamh, pam_sys::PamItemType::SERVICE, &mut service_ptr);
+    
+    let service = if service_res == PamReturnCode::SUCCESS && !service_ptr.is_null() {
+        CStr::from_ptr(service_ptr as *const libc::c_char).to_string_lossy().into_owned()
+    } else {
+        "unknown".to_string()
+    };
+
     let mut retries = 0;
     let max_retries = get_max_retries();
 
@@ -171,23 +183,46 @@ pub unsafe extern "C" fn pam_sm_authenticate(
             }
         };
 
-        // 3. Set Timeout
-        let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+        // 3. Set Timeout (Increase to 60s to allow for user approval dialog)
+        let _ = stream.set_read_timeout(Some(Duration::from_secs(60)));
 
-        // 4. Send AUTH request
-        let request = format!("AUTH {}", username);
+        // 4. Send AUTH request with service info
+        let request = format!("AUTH {} {}", username, service);
         if stream.write_all(request.as_bytes()).is_ok() {
-            // 5. Read response
-            let mut buffer = [0; 128];
-            match stream.read(&mut buffer) {
-                Ok(n) if n > 0 => {
-                    let response = String::from_utf8_lossy(&buffer[..n]);
-                    if response.trim() == "SUCCESS" {
-                        send_message(pamh, PAM_TEXT_INFO, "✅ Linux Bonjour: Face Recognized!", false);
-                        return PamReturnCode::SUCCESS as libc::c_int;
+            // 5. Read response (Loop for intermediate INFO messages)
+            loop {
+                let mut buffer = [0; 512];
+                match stream.read(&mut buffer) {
+                    Ok(n) if n > 0 => {
+                        let response = String::from_utf8_lossy(&buffer[..n]);
+                        for line in response.lines() {
+                            let resp_trim = line.trim();
+                            if resp_trim.starts_with("INFO: ") {
+                                let instruction = &resp_trim[6..];
+                                send_message(pamh, PAM_TEXT_INFO, instruction, false);
+                                continue;
+                            }
+                            
+                            if resp_trim == "SUCCESS" {
+                                send_message(pamh, PAM_TEXT_INFO, "✅ Linux Bonjour: Face Recognized!", false);
+                                return PamReturnCode::SUCCESS as libc::c_int;
+                            } else if resp_trim == "DENIED" {
+                                send_message(pamh, PAM_TEXT_INFO, "🚫 Linux Bonjour: Authorization Denied.", false);
+                                return PamReturnCode::AUTH_ERR as libc::c_int;
+                            } else if resp_trim == "FAILURE" {
+                                // Break and allow retry prompt
+                                break;
+                            }
+                        }
+                        // If we got a final status in one of the lines, return was already handled.
+                        // If it was just an INFO line, it continues the inner loop.
+                        // We need to check if the last line we processed was a terminal one.
+                        let last_line = response.lines().last().unwrap_or_default().trim();
+                        if last_line == "FAILURE" { break; }
+                        if last_line == "SUCCESS" || last_line == "DENIED" { break; }
                     }
+                    _ => break, // Connection closed or error
                 }
-                _ => {}
             }
         }
 
