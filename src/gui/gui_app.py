@@ -314,7 +314,7 @@ class LinuxBonjourGUI(QMainWindow):
                 "threshold": 0.45,
                 "cooldown_time": 60,
                 "max_failures": 5,
-                "model_name": "buffalo_s",
+                "model_name": "buffalo_l",
                 "users_dir": "config/users",
                 "camera_index": None,
                 "camera_type": "AUTO",

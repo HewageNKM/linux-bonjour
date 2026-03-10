@@ -1,6 +1,6 @@
 {
     "socket_path": "/run/linux-bonjour.sock",
-    "model_name": "buffalo_sc",
+    "model_name": "buffalo_l",
     "threshold": 0.45,
     "users_dir": "config/users",
     "cooldown_time": 60,
@@ -11,5 +11,7 @@
     "pam_logging": true,
     "search_duration": 3.5,
     "logging_enabled": true,
-    "system_enabled": true
+    "system_enabled": true,
+    "auth_approval": true,
+    "notifications_enabled": true
 }
