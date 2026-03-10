@@ -11,7 +11,12 @@ Restart=on-failure
 RestartSec=5s
 StartLimitIntervalSec=0
 
-# Hardware access for cameras
+# Hardening and Sandboxing
+NoNewPrivileges=no
+ProtectSystem=full
+ProtectHome=read-only
+PrivateTmp=yes
+CapabilityBoundingSet=CAP_SETUID CAP_SETGID CAP_DAC_OVERRIDE
 DeviceAllow=/dev/video0 rw
 DeviceAllow=/dev/video1 rw
 DeviceAllow=/dev/video2 rw

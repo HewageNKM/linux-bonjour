@@ -13,5 +13,6 @@
     "logging_enabled": true,
     "system_enabled": true,
     "auth_approval": true,
-    "notifications_enabled": true
+    "notifications_enabled": true,
+    "show_scanner_overlay": true
 }

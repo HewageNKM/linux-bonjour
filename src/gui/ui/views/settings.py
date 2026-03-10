@@ -140,9 +140,13 @@ class SettingsView(QWidget):
         adv_layout = QVBoxLayout()
         
         # Notification & Approval Toggles
-        self.auth_approval_toggle = QCheckBox("ENABLE AUTHORIZATION POPUP")
+        self.auth_approval_toggle = QCheckBox("AUTHORIZATION DIALOG (TERMINAL)")
         self.auth_approval_toggle.setToolTip("Show a Zenity popup for you to approve before the face scan begins (recommended for Sudo).")
         adv_layout.addWidget(self.auth_approval_toggle)
+
+        self.show_overlay_toggle = QCheckBox("SHOW SCANNER OVERLAY (BLUE LINE)")
+        self.show_overlay_toggle.setToolTip("Show the moving scanning line over the camera preview in this app.")
+        adv_layout.addWidget(self.show_overlay_toggle)
 
         self.notifications_toggle = QCheckBox("ENABLE DESKTOP NOTIFICATIONS")
         self.notifications_toggle.setToolTip("Show desktop alerts when authentication succeeds, fails, or scanning starts.")
@@ -221,6 +225,7 @@ class SettingsView(QWidget):
             "pam_logging": self.pam_log_toggle.isChecked(),
             "auth_approval": self.auth_approval_toggle.isChecked(),
             "notifications_enabled": self.notifications_toggle.isChecked(),
+            "show_scanner_overlay": self.show_overlay_toggle.isChecked(),
             "max_failures": self.max_fail_spin.value(),
             "cooldown_time": self.cooldown_spin.value()
         }
@@ -235,5 +240,6 @@ class SettingsView(QWidget):
         self.pam_log_toggle.setChecked(config.get("pam_logging", True))
         self.auth_approval_toggle.setChecked(config.get("auth_approval", True))
         self.notifications_toggle.setChecked(config.get("notifications_enabled", True))
+        self.show_overlay_toggle.setChecked(config.get("show_scanner_overlay", True))
         self.max_fail_spin.setValue(config.get("max_failures", 3))
         self.cooldown_spin.setValue(config.get("cooldown_time", 60))

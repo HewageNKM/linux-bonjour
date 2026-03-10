@@ -110,6 +110,7 @@ chown -R root:root \$BASE_DIR
 chmod -R 755 \$BASE_DIR
 chmod -R 777 \$BASE_DIR/models
 chmod -R 777 \$BASE_DIR/config/users
+chmod 666 \$BASE_DIR/config/config.json
 
 # 6. PAM Module Setup (CRITICAL)
 chown root:root /lib/x86_64-linux-gnu/security/pam_bonjour.so
@@ -148,8 +149,10 @@ EOF
 chmod 755 pkg/DEBIAN/postinst pkg/DEBIAN/prerm
 
 cp src/pam_rs/target/release/libpam_bonjour.so pkg/lib/x86_64-linux-gnu/security/pam_bonjour.so
+mkdir -p pkg/etc/logrotate.d
 cp config/linux-bonjour.service pkg/lib/systemd/system/
-cp org.linuxbonjour.conf pkg/usr/share/linux-bonjour/ 2>/dev/null || true
+cp config/linux-bonjour.logrotate pkg/etc/logrotate.d/linux-bonjour
+cp org.linuxbonjour.conf pkg/usr/share/linux-bonjour/
 cp org.linuxbonjour.policy pkg/usr/share/polkit-1/actions/ 2>/dev/null || true
 cp linux-bonjour.desktop pkg/usr/share/applications/ 2>/dev/null || true
 cp src/gui/assets/logo.png pkg/usr/share/pixmaps/linux-bonjour.png 2>/dev/null || true

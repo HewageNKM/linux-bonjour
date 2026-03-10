@@ -513,7 +513,12 @@ class FaceDaemon:
 
         # 0.1 Manual User Approval (Zenity Fallback + D-Bus)
         # Skip popup for services that already have a GUI (GDM, Polkit, etc.)
-        skip_popup = service in ["polkit-1", "gnome-screensaver", "lightdm", "sddm"] or service.startswith("gdm-")
+        gui_services = [
+            "polkit-1", "gnome-screensaver", "lightdm", "sddm", "xscreensaver", 
+            "mate-screensaver", "kcheckpass", "gnome-shell", "system-auth", 
+            "kscreensaver", "gnome-initial-setup", "unity-greeter"
+        ]
+        skip_popup = service in gui_services or service.startswith("gdm-")
         if self.config.get("auth_approval", True) and not skip_popup:
             log_event(f"AUTH: Requesting user approval for {username} on {service}")
             
@@ -738,7 +743,8 @@ class FaceDaemon:
                                enabled=self.config.get('logging_enabled', True))
                     
                     # Update cache for next time
-                    self.dbus.emit_verified(username)
+                    if self.config.get("notifications_enabled", True):
+                        self.dbus.emit_verified(username)
                     self.match_cache[username] = (live_embedding, best_match)
                     self._finish_success(username, best_match, conn, service)
                     return "SUCCESS"

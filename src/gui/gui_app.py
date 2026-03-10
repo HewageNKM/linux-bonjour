@@ -435,13 +435,20 @@ class LinuxBonjourGUI(QMainWindow):
         titles = ["DASHBOARD", "IDENTITY ENROLLMENT", "ADVANCED SETTINGS"]
         self.header_label.setText(titles[index])
         
-        # Reparent overlay to the active image label
         if index == 0: # Dashboard
             self.scanner_overlay.setParent(self.dashboard_view.image_label)
-            self.scanner_overlay.show() if self.video_thread and self.video_thread.isRunning() else self.scanner_overlay.hide()
+            is_active = self.video_thread and self.video_thread.isRunning()
+            if is_active and self.config.get("show_scanner_overlay", True):
+                self.scanner_overlay.show()
+            else:
+                self.scanner_overlay.hide()
         elif index == 1: # Enrollment
             self.scanner_overlay.setParent(self.enrollment_view.image_label)
-            self.scanner_overlay.show() if self.video_thread and self.video_thread.isRunning() else self.scanner_overlay.hide()
+            is_active = self.video_thread and self.video_thread.isRunning()
+            if is_active and self.config.get("show_scanner_overlay", True):
+                self.scanner_overlay.show()
+            else:
+                self.scanner_overlay.hide()
         else:
             self.scanner_overlay.hide()
 
@@ -655,6 +662,15 @@ class LinuxBonjourGUI(QMainWindow):
             self.restart_worker.start()
 
         self.statusBar().showMessage("Configuration Applied! ✨", 3000)
+        
+        # Update UI components that depend on config immediately
+        is_active = self.video_thread and self.video_thread.isRunning()
+        visible_tab = self.stack.currentIndex() in [0, 1]
+        if is_active and visible_tab and self.config.get("show_scanner_overlay", True):
+            self.scanner_overlay.show()
+        else:
+            self.scanner_overlay.hide()
+
         QMessageBox.information(self, "Settings Saved", "System configuration has been successfully updated and applied.")
 
     def on_restart_finished(self, success, message):
@@ -737,7 +753,10 @@ class LinuxBonjourGUI(QMainWindow):
     def start_video(self):
         self.enrollment_view.status_label.setText("Initializing Scanner...")
         self.enrollment_view.set_enrolling(True)
-        self.scanner_overlay.show()
+        if self.config.get("show_scanner_overlay", True):
+            self.scanner_overlay.show()
+        else:
+            self.scanner_overlay.hide()
         self.video_thread = VideoThread(self.config)
         self.video_thread.change_pixmap_signal.connect(self.update_image)
         self.video_thread.face_detected_signal.connect(self.on_face_detected)
