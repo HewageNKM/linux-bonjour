@@ -229,7 +229,7 @@ class SettingsView(QWidget):
     def update_ui_from_config(self, config):
         self.system_enabled_toggle.setChecked(config.get("system_enabled", True))
         self.t_slider.setValue(int(config.get("threshold", 0.45) * 100))
-        self.m_combo.setCurrentText(config.get("model_name", "buffalo_s"))
+        self.m_combo.setCurrentText(config.get("model_name", "buffalo_l"))
         self.cam_type_combo.setCurrentText(config.get("camera_type", "AUTO"))
         self.log_toggle.setChecked(config.get("logging_enabled", True))
         self.pam_log_toggle.setChecked(config.get("pam_logging", True))

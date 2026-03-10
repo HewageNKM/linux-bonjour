@@ -586,7 +586,7 @@ class LinuxBonjourGUI(QMainWindow):
             self.pam_updating = False
 
     def has_face_data(self):
-        model_name = self.config.get("model_name", "buffalo_s")
+        model_name = self.config.get("model_name", "buffalo_l")
         users_dir = os.path.join(PROJECT_ROOT, self.config.get("users_dir", "config/users"), model_name)
         return os.path.exists(users_dir) and any(f.endswith(".npy") or f.endswith(".enc") for f in os.listdir(users_dir))
 

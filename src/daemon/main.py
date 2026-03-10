@@ -505,8 +505,9 @@ class FaceDaemon:
         if grace_period > 0 and username in self.last_success:
             if (now - self.last_success[username]) < grace_period:
                 log_event(f"AUTH BYPASS: User '{username}' authenticated via grace period.")
-                try: conn.sendall(b"INFO: Recently verified! Bypassing scan... \n")
-                except: pass
+                if self.config.get("pam_logging", True):
+                    try: conn.sendall(b"INFO: Recently verified! Bypassing scan... \n")
+                    except: pass
                 self.dbus.emit_verified(username)
                 return "SUCCESS"
 
@@ -517,13 +518,15 @@ class FaceDaemon:
             log_event(f"AUTH: Requesting user approval for {username} on {service}")
             
             # Send info to terminal
-            try: conn.sendall(f"INFO: 🛡️ Please Approve Face ID in the authorization popup...\n".encode())
-            except: pass
+            if self.config.get("pam_logging", True):
+                try: conn.sendall(f"INFO: 🛡️ Please Approve Face ID in the authorization popup...\n".encode())
+                except: pass
 
             # 1. Emit D-Bus signal (for extension if it works)
             self.auth_event.clear()
             self.auth_approved = False
-            self.dbus.emit_auth_requested(username, service)
+            if self.config.get("notifications_enabled", True):
+                self.dbus.emit_auth_requested(username, service)
             
             # 2. Run Zenity (Legacy reliable way)
             # This is blocking, but that's what we want for authorization
@@ -541,7 +544,8 @@ class FaceDaemon:
                 self.auth_event.set()
 
         # 0.2 Start Feedback
-        self.dbus.emit_scanning(username)
+        if self.config.get("notifications_enabled", True):
+            self.dbus.emit_scanning(username)
 
         # 0.1 Check Denial Grace Period (Prevent prompt looping on Deny)
         if username in self.last_denial:
@@ -579,10 +583,11 @@ class FaceDaemon:
             if (now_loop - self._last_pam_info) > 1.5:
                 required_gesture = self.config.get("secret_gesture", "none")
                 if self.config.get("secret_gesture_enabled", False) and required_gesture != "none":
-                    msg = f"INFO: 😉 Please {required_gesture.replace('_', ' ').upper()} to authenticate...\n"
-                    try: conn.sendall(msg.encode())
-                    except: pass
-                elif self.config.get("liveness_required", False):
+                    if self.config.get("pam_logging", True):
+                        msg = f"INFO: 😉 Please {required_gesture.replace('_', ' ').upper()} to authenticate...\n"
+                        try: conn.sendall(msg.encode())
+                        except: pass
+                elif self.config.get("liveness_required", False) and self.config.get("pam_logging", True):
                     try: conn.sendall("INFO: 👁️ Please BLINK to verify liveness...\n".encode())
                     except: pass
                 self._last_pam_info = now_loop
@@ -702,6 +707,7 @@ class FaceDaemon:
 
                         log_event(f"AUTH SUCCESS (CACHE): User '{username}' recognized as '{cached_name}' (Score: {score:.4f}, Threshold: {active_threshold:.2f})",
                                    enabled=self.config.get('logging_enabled', True))
+                    if self.config.get("notifications_enabled", True):
                         self.dbus.emit_verified(username)
                         self._finish_success(username, cached_name, conn, service)
                         return "SUCCESS"
@@ -744,7 +750,8 @@ class FaceDaemon:
                   enabled=self.config.get('logging_enabled', True))
             
         # Increment failure count
-        self.dbus.emit_denied(username)
+        if self.config.get("notifications_enabled", True):
+            self.dbus.emit_denied(username)
         stats = self.failed_attempts.get(username, (0, 0.0))
         count, _ = stats
         self.failed_attempts[username] = (count + 1, time.time())
@@ -789,6 +796,13 @@ class FaceDaemon:
                     new_config = load_config()
                     log_event(f"DEBUG: Received request for {username} (Service: {service})", 
                                enabled=new_config.get('logging_enabled', True))
+                    
+                    # 1. Check System Master Switch
+                    if not new_config.get("system_enabled", True):
+                        log_event(f"AUTH REJECTED: System is globally disabled in config.", 
+                                   enabled=new_config.get('logging_enabled', True))
+                        conn.sendall(b"FAILURE")
+                        continue
                     
                     # Hot-reload model if it changed in config
                     if new_config.get('model_name') != self.config.get('model_name'):
