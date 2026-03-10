@@ -317,7 +317,9 @@ class LinuxBonjourGUI(QMainWindow):
                 "model_name": "buffalo_s",
                 "users_dir": "config/users",
                 "camera_index": None,
-                "camera_type": "AUTO"
+                "camera_type": "AUTO",
+                "auth_approval": True,
+                "notifications_enabled": True
             }
 
     def save_config(self):

@@ -139,14 +139,16 @@ class SettingsView(QWidget):
         adv_group = QGroupBox("ADVANCED & DEBUG")
         adv_layout = QVBoxLayout()
         
-        # Logging Toggles
-        self.log_toggle = QCheckBox("ENABLE ACTIVITY LOGS")
-        self.log_toggle.setToolTip("Record authentication attempts and errors to /usr/share/linux-bonjour/daemon.log for troubleshooting.")
-        adv_layout.addWidget(self.log_toggle)
+        # Notification & Approval Toggles
+        self.auth_approval_toggle = QCheckBox("ENABLE AUTHORIZATION POPUP")
+        self.auth_approval_toggle.setToolTip("Show a Zenity popup for you to approve before the face scan begins (recommended for Sudo).")
+        adv_layout.addWidget(self.auth_approval_toggle)
 
-        self.pam_log_toggle = QCheckBox("ENABLE CONSOLE FEEDBACK")
-        self.pam_log_toggle.setToolTip("Show scanning status and retry prompts directly in the console/login screen.")
-        adv_layout.addWidget(self.pam_log_toggle)
+        self.notifications_toggle = QCheckBox("ENABLE DESKTOP NOTIFICATIONS")
+        self.notifications_toggle.setToolTip("Show desktop alerts when authentication succeeds, fails, or scanning starts.")
+        adv_layout.addWidget(self.notifications_toggle)
+        
+        # Logging Toggles
         
         # Auth Throttling
         throttle_layout = QHBoxLayout()
@@ -217,6 +219,8 @@ class SettingsView(QWidget):
             "camera_type": self.cam_type_combo.currentText(),
             "logging_enabled": self.log_toggle.isChecked(),
             "pam_logging": self.pam_log_toggle.isChecked(),
+            "auth_approval": self.auth_approval_toggle.isChecked(),
+            "notifications_enabled": self.notifications_toggle.isChecked(),
             "max_failures": self.max_fail_spin.value(),
             "cooldown_time": self.cooldown_spin.value()
         }
@@ -229,5 +233,7 @@ class SettingsView(QWidget):
         self.cam_type_combo.setCurrentText(config.get("camera_type", "AUTO"))
         self.log_toggle.setChecked(config.get("logging_enabled", True))
         self.pam_log_toggle.setChecked(config.get("pam_logging", True))
+        self.auth_approval_toggle.setChecked(config.get("auth_approval", True))
+        self.notifications_toggle.setChecked(config.get("notifications_enabled", True))
         self.max_fail_spin.setValue(config.get("max_failures", 3))
         self.cooldown_spin.setValue(config.get("cooldown_time", 60))
