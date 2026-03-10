@@ -108,6 +108,7 @@ class SettingsView(QWidget):
         m_header.addWidget(help_m)
         engine_layout.addLayout(m_header)
 
+        self.m_combo = QComboBox()
         self.m_combo.addItems(["buffalo_sc", "buffalo_s", "buffalo_l", "antelopev2"])
         self.m_combo.setMinimumHeight(40)
         self.m_combo.setToolTip("Select the deep learning model. 'buffalo_l' is most accurate but slower.")
@@ -120,6 +121,10 @@ class SettingsView(QWidget):
         self.download_btn.setToolTip("Download the selected model architecture to your local system.")
         self.download_btn.clicked.connect(lambda: self.download_requested.emit(self.m_combo.currentText()))
         engine_layout.addWidget(self.download_btn)
+
+        self.smile_toggle = QCheckBox("SMILE TO UNLOCK (NITRO LIVENESS)")
+        self.smile_toggle.setToolTip("Require a detected smile to authenticate. Adds an extra layer of anti-spoofing.")
+        engine_layout.addWidget(self.smile_toggle)
         
         engine_group.setLayout(engine_layout)
         container_layout.addWidget(engine_group)
@@ -152,6 +157,14 @@ class SettingsView(QWidget):
         self.notifications_toggle = QCheckBox("ENABLE DESKTOP NOTIFICATIONS")
         self.notifications_toggle.setToolTip("Show desktop alerts when authentication succeeds, fails, or scanning starts.")
         adv_layout.addWidget(self.notifications_toggle)
+
+        self.log_toggle = QCheckBox("ENABLE SYSTEM LOGGING")
+        self.log_toggle.setToolTip("Record authentication events for security auditing.")
+        adv_layout.addWidget(self.log_toggle)
+        
+        self.pam_log_toggle = QCheckBox("LOG PAM MESSAGES TO TERMINAL")
+        self.pam_log_toggle.setToolTip("Show real-time biometric status feedback in terminal prompts (sudo).")
+        adv_layout.addWidget(self.pam_log_toggle)
         
         # Logging Toggles
         
@@ -165,12 +178,21 @@ class SettingsView(QWidget):
         
         throttle_layout.addSpacing(20)
         throttle_layout.addWidget(QLabel("GRACE PERIOD (sec)"))
+        self.grace_period_spin = QSpinBox()
+        self.grace_period_spin.setRange(0, 3600)
+        self.grace_period_spin.setSingleStep(30)
+        self.grace_period_spin.setToolTip("Allow re-authentication without scanning if successful recently.")
+        throttle_layout.addWidget(self.grace_period_spin)
+        adv_layout.addLayout(throttle_layout)
+        
+        cooldown_layout = QHBoxLayout()
+        cooldown_layout.addWidget(QLabel("COOLDOWN TIME (sec)"))
         self.cooldown_spin = QSpinBox()
         self.cooldown_spin.setRange(10, 300)
         self.cooldown_spin.setSingleStep(10)
         self.cooldown_spin.setToolTip("Duration of the lockout cooling period after max failures.")
-        throttle_layout.addWidget(self.cooldown_spin)
-        adv_layout.addLayout(throttle_layout)
+        cooldown_layout.addWidget(self.cooldown_spin)
+        adv_layout.addLayout(cooldown_layout)
         
         adv_group.setLayout(adv_layout)
         container_layout.addWidget(adv_group)
@@ -227,7 +249,9 @@ class SettingsView(QWidget):
             "auth_approval": self.auth_approval_toggle.isChecked(),
             "notifications_enabled": self.notifications_toggle.isChecked(),
             "show_scanner_overlay": self.show_overlay_toggle.isChecked(),
+            "smile_required": self.smile_toggle.isChecked(),
             "max_failures": self.max_fail_spin.value(),
+            "grace_period": self.grace_period_spin.value(),
             "cooldown_time": self.cooldown_spin.value()
         }
         self.config_changed.emit(config)
@@ -242,5 +266,7 @@ class SettingsView(QWidget):
         self.auth_approval_toggle.setChecked(config.get("auth_approval", True))
         self.notifications_toggle.setChecked(config.get("notifications_enabled", True))
         self.show_overlay_toggle.setChecked(config.get("show_scanner_overlay", True))
+        self.smile_toggle.setChecked(config.get("smile_required", False))
         self.max_fail_spin.setValue(config.get("max_failures", 3))
+        self.grace_period_spin.setValue(config.get("grace_period", 0))
         self.cooldown_spin.setValue(config.get("cooldown_time", 60))

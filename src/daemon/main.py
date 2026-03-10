@@ -39,7 +39,7 @@ def load_config():
         with open(CONFIG_PATH, 'r') as f:
             conf = json.load(f)
             # Ensure users_dir is absolute and points to the model-wise subdirectory
-            model_name = conf.get('model_name', 'buffalo_l')
+            model_name = str(conf.get('model_name', 'buffalo_l'))
             # Strip _int8 for directory naming consistency (Phase 26)
             model_base = model_name.replace("_int8", "")
             
@@ -140,8 +140,20 @@ class PresenceDetector(threading.Thread):
                 time.sleep(10)
                 continue
 
-            # Adaptive scan rate: check every 5s for presence
-            time.sleep(5)
+            # Adaptive presence scan rate (Nitro Power Optimization)
+            on_bat = False
+            perc = 100
+            try:
+                on_bat, perc = self.daemon_ref.get_battery_status()
+            except:
+                pass
+                
+            if on_bat:
+                sleep_time = 10 if perc < 20 else 7
+            else:
+                sleep_time = 5
+            
+            time.sleep(sleep_time)
             
             # Don't scan if an active AUTH is happening (prevents race/flicker)
             if self.daemon_ref.auth_in_progress:
@@ -199,12 +211,16 @@ class FaceDaemon:
         self.auth_event = Event()
         self.auth_approved = False
         
-        # Load Engine
-        self._load_ai_engine()
+        # Load Engine (Nitro Threaded Initialization)
+        self.app_ready = Event()
+        self.init_thread = threading.Thread(target=self._load_ai_engine, daemon=True)
+        self.init_thread.start()
 
         # Initialize camera
         self.cam = IRCamera(config=self.config)
-        
+        self.cam_lock = Lock()
+        self.users_dir = "" # Will be set in reload_config
+        self.reload_config()
         # Startup Directory Verification
         users_dir = self.config.get('users_dir', 'config/users')
         if not os.path.exists(str(users_dir)):
@@ -217,12 +233,17 @@ class FaceDaemon:
 
     def _load_ai_engine(self):
         """Initializes AI Engine with OpenVINO priority and intelligent hardware fallback."""
-        model_name = self.config.get('model_name', 'buffalo_l')
+        model_name = str(self.config.get('model_name', 'buffalo_l'))
         models_dir = os.path.join(BASE_DIR, "models")
+        cache_dir = "/var/cache/linux-bonjour"
         
-        # Phase 24: Expanded Universal Hardware Support (AMD/NVIDIA/Intel)
+        # Phase 28: Model Caching (OpenVINO)
+        # We use environment variables because insightface 
+        # doesn't directly expose provider_options in FaceAnalysis constructor
+        os.environ["OV_CACHE_DIR"] = cache_dir
+        os.environ["OV_CONFIG"] = '{"CACHE_DIR":"'+cache_dir+'"}'
+        
         # Priority: OpenVINO (Intel) -> MIGraphX (AMD) -> ROCM (AMD) -> TensorRT (NVIDIA) -> CUDA (NVIDIA)
-        # users can override this via config.json ["hardware_acceleration_priority"]
         accelerated_providers = [
             'OpenVINOExecutionProvider',
             'MIGraphXExecutionProvider',
@@ -238,8 +259,7 @@ class FaceDaemon:
         if os.path.exists(int8_model_path):
             print(f"🚀 Quantized INT8 model detected for {model_name}. Prioritizing OpenVINO.")
             model_name = f"{model_name}_int8"
-
-        # Step 2: Try accelerated providers (Auto-detection)
+        # Try accelerated providers
         for provider in accelerated_providers:
             try:
                 print(f"Trying hardware acceleration: {provider}...")
@@ -247,27 +267,29 @@ class FaceDaemon:
                 self.app.prepare(ctx_id=0, det_size=(320, 320))
                 
                 # Verify that the provider was actually assigned
-                assigned_providers = self.app.models['detection'].session.get_providers()
-                if provider in assigned_providers:
-                    log_event(f"AI Engine '{model_name}' ACTIVE on {provider}.")
-                    print(f"✅ AI Engine initialized on {provider}.")
-                    return True
+                if self.app is not None and hasattr(self.app, 'models') and 'detection' in self.app.models:
+                    model = self.app.models['detection']
+                    if hasattr(model, 'session'):
+                        assigned_providers = model.session.get_providers()
+                        if provider in assigned_providers:
+                            print(f"✅ Success! Accelerated by {provider}")
+                            self.app_ready.set()
+                            return
             except Exception as e:
-                print(f"⚠️ {provider} unavailable: {e}")
-                continue
+                print(f"Provider {provider} failed: {e}")
 
-        # Step 3: Absolute Fallback (CPU)
-        try:
-            log_event(f"AI Engine hardware acceleration failed. Falling back to CPU.")
-            print("Falling back to CPU (Compatibility Mode)...")
-            self.app = FaceAnalysis(name=model_name, root=models_dir, providers=['CPUExecutionProvider'])
-            self.app.prepare(ctx_id=0, det_size=(320, 320))
-            log_event(f"AI Engine '{model_name}' stable on CPU.")
-            return True
-        except Exception as cpu_e:
-            log_event(f"CRITICAL: AI engine failed to load even on CPU: {cpu_e}")
-            raise
-        return False
+        # Fallback to CPU
+        print("Falling back to CPUExecutionProvider...")
+        self.app = FaceAnalysis(name=model_name, root=models_dir, providers=['CPUExecutionProvider'])
+        self.app.prepare(ctx_id=0, det_size=(320, 320))
+        self.app_ready.set()
+
+    def _ensure_ai_ready(self, timeout=15):
+        """Blocks until AI engine is loaded (used for on-demand auth)."""
+        if not self.app_ready.is_set():
+            print("⏳ Waiting for AI Engine to initialize...")
+            self.app_ready.wait(timeout=timeout)
+        return self.app is not None
 
     def reload_config(self):
         """Reloads configuration and triggers engine swat if model changed."""
@@ -297,7 +319,12 @@ class FaceDaemon:
         # New: Search Locations
         search_dirs = [self.config['users_dir']]
         # Strip _int8 for local user dir as well
-        model_base = self.config.get("model_name", "buffalo_l").replace("_int8", "")
+        model_name = str(self.config.get('model_name', 'buffalo_l'))
+        model_base = model_name.replace("_int8", "")
+        # Safe string conversion for path functions
+        u_dir = str(self.config.get("users_dir", "config/users"))
+        # In service mode, we use BASE_DIR as the root
+        self.users_dir = os.path.join(BASE_DIR, u_dir, model_base)
         try:
             pw = pwd.getpwnam(username)
             user_local_dir = os.path.join(pw.pw_dir, ".linux-bonjour", "users", model_base)
@@ -390,15 +417,26 @@ class FaceDaemon:
             return 0.0
 
     def calculate_mar(self, landmarks):
-        """Calculates Mouth Aspect Ratio (MAR) using 3D-68 facial landmarks."""
+        """Calculates Mouth Aspect Ratio (MAR) for smile/speech detection."""
         try:
-            # Inner lip indices: 60-67
-            # 61, 67 and 63, 65 are vertical pairs
-            # 60, 64 are horizontal
-            v1 = np.linalg.norm(landmarks[61] - landmarks[67])
-            v2 = np.linalg.norm(landmarks[63] - landmarks[65])
-            h = np.linalg.norm(landmarks[60] - landmarks[64])
-            return (v1 + v2) / (2.0 * h)
+            # Using landmark indices for inner/outer lip
+            # 60-67 are inner lip points in 68-point model
+            d_v = np.linalg.norm(landmarks[62] - landmarks[66])
+            d_h = np.linalg.norm(landmarks[60] - landmarks[64])
+            return d_v / d_h
+        except:
+            return 0.0
+
+    def calculate_smile_score(self, landmarks):
+        """Calculates smile score based on mouth corner elevation."""
+        try:
+            # 48, 54 are mouth corners
+            # 51 is top of lip, 57 is bottom
+            # 33 is nose tip (stable reference)
+            corner_avg_y = (landmarks[48][1] + landmarks[54][1]) / 2.0
+            nose_y = landmarks[33][1]
+            relative_elevation = (nose_y - corner_avg_y)
+            return relative_elevation
         except:
             return 0.0
 
@@ -599,6 +637,11 @@ class FaceDaemon:
         # Non-blocking check for connection status
         conn.setblocking(False)
         
+        # Ensure AI is ready (Nitro deferment)
+        if not self._ensure_ai_ready():
+            log_event("AUTH ERROR: AI Engine failed to initialize in time.")
+            return "FAILURE"
+
         match_found = False # Flag to track if a match was found
         overall_best_score = -1 # For debugging on timeout
 
@@ -645,7 +688,10 @@ class FaceDaemon:
                     continue
                 consecutive_cam_fails = 0 # Reset on success
 
-                faces = self.app.get(frame)
+                if self.app is not None and hasattr(self.app, 'get'):
+                    faces = self.app.get(frame)
+                else:
+                    faces = []
             
             if not faces:
                 # Optimized Phase 2 & 5: Adaptive sleep
@@ -688,10 +734,19 @@ class FaceDaemon:
                     # --- Liveness Phase 2: Gesture (Smile/Mouth Open) ---
                     gesture_detected = False
                     mar = self.calculate_mar(face.landmark_3d_68)
-                    if mar > 0.35: # Threshold for mouth open/smile
-                        gesture_detected = True
-                        if attempt % 5 == 0:
-                            log_event(f"SECURITY: Smile/Mouth detected for {username} (MAR: {mar:.2f})")
+                    smile_score = self.calculate_smile_score(face.landmark_3d_68)
+                    
+                    # NEW: Smile to Unlock
+                    if self.config.get("smile_required", False):
+                        if smile_score > 5.0: # Threshold for detectable smile
+                            gesture_detected = True
+                            if attempt % 5 == 0:
+                                log_event(f"SECURITY: Smile detected for {username} (Score: {smile_score:.2f})")
+                    else:
+                        if mar > 0.35: # Threshold for mouth open/speech
+                            gesture_detected = True
+                            if attempt % 5 == 0:
+                                log_event(f"SECURITY: Mouth activity detected for {username} (MAR: {mar:.2f})")
 
                     # --- Phase 8: Secret Gestures ---
                     secret_gesture_ok = True
@@ -742,7 +797,9 @@ class FaceDaemon:
                 best_score = -1.0
                 best_match = None
                 
-                for name, target_embedding in targets:
+                # Ensure targets is a list to avoid None errors
+                search_targets = targets if targets is not None else []
+                for name, target_embedding in search_targets:
                     score = float(np.dot(live_embedding, target_embedding))
                     if score > best_score:
                         best_score = score
