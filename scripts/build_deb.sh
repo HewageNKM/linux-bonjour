@@ -57,8 +57,9 @@ MODELS_DIR="\$BASE_DIR/models"
 echo "Configuring Linux Bonjour v1.8.0 Nitro Release..."
 
 # 1. Setup Virtual Environment
-if [ ! -d "\$VENV" ]; then
-    echo "Creating virtual environment..."
+if [ ! -f "\$VENV/bin/pip" ]; then
+    echo "Creating (or repairing) virtual environment..."
+    rm -rf "\$VENV"
     python3 -m venv --system-site-packages "\$VENV"
 fi
 
