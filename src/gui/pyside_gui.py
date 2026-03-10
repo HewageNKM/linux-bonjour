@@ -10,10 +10,9 @@ from PySide6.QtGui import QColor, QIcon, QFont
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.append(os.path.join(PROJECT_ROOT, "src"))
 
-from gui.ui_views.dashboard import DashboardWidget
-from gui.ui_views.enrollment import EnrollmentWidget
-from gui.ui_views.settings import SettingsWidget
-from gui.ui_views.logs import LogsWidget
+from gui.ui.views.dashboard import DashboardView
+from gui.ui.views.enrollment import EnrollmentView
+from gui.ui.views.settings import SettingsView
 import json
 
 ACCENT_CYAN = "#00b0f4"
@@ -131,25 +130,33 @@ class LinuxBonjourGUI(QMainWindow):
         self.stack = QStackedWidget()
         self.stack.setStyleSheet(f"background-color: {BG_DARK};")
         
-        # Real Widgets
-        self.dashboard_view = DashboardWidget(config=self.config)
-        self.enrollment_view = EnrollmentWidget(config=self.config)
-        self.settings_view = SettingsWidget(config=self.config)
-        self.logs_view = LogsWidget()
+        # Real Widgets (Unified UI)
+        self.dashboard_view = DashboardView()
+        self.enrollment_view = EnrollmentView()
+        self.settings_view = SettingsView()
+        
+        # Initial config sync
+        self.settings_view.update_ui_from_config(self.config)
+        
+        # Connect settings signals
+        self.settings_view.config_changed.connect(self.apply_config)
         
         self.stack.addWidget(self.dashboard_view)
         self.stack.addWidget(self.enrollment_view)
         self.stack.addWidget(self.settings_view)
-        self.stack.addWidget(self.logs_view)
             
         self.main_layout.addWidget(self.stack)
         
+    def apply_config(self, config):
+        self.config = config
+        user_config = os.path.expanduser("~/.linux-bonjour/config.json")
+        try:
+            with open(user_config, "w") as f:
+                json.dump(config, f, indent=4)
+        except Exception as e:
+            print(f"Error saving config: {e}")
+
     def switch_tab(self, index):
-        # Stop video if moving away from Enrollment
-        if self.stack.currentIndex() == 1 and index != 1:
-            self.enrollment_view.video_running = True # Forge a stop call
-            self.enrollment_view.toggle_enrollment()
-            
         self.stack.setCurrentIndex(index)
         for i, btn in enumerate(self.nav_btns):
             btn.setProperty("active", "true" if i == index else "false")
