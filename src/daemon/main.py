@@ -439,9 +439,10 @@ class FaceDaemon:
         """Launches a Zenity question dialog for the user to approve the scan."""
         env_vars, uid = self.get_desktop_env(username)
         
-        # Build the command precisely to run in the user's session
+        # Build the command precisely to run in the user's session using runuser
+        # runuser is more reliable than sudo inside service environments for this purpose
         cmd = [
-            "sudo", "-u", username,
+            "runuser", "-u", username, "--",
             "env",
             f"DISPLAY={env_vars.get('DISPLAY', ':0')}",
             f"XAUTHORITY={env_vars.get('XAUTHORITY', '')}",
