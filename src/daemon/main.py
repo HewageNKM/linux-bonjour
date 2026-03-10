@@ -38,12 +38,15 @@ def load_config():
     try:
         with open(CONFIG_PATH, 'r') as f:
             conf = json.load(f)
-            # Ensure users_dir is absolute and points to the model subdirectory
+            # Ensure users_dir is absolute and points to the model-wise subdirectory
             model_name = conf.get('model_name', 'buffalo_l')
+            # Strip _int8 for directory naming consistency (Phase 26)
+            model_base = model_name.replace("_int8", "")
+            
             if not conf['users_dir'].startswith('/'):
-                conf['users_dir'] = os.path.join(BASE_DIR, conf['users_dir'], model_name)
+                conf['users_dir'] = os.path.join(BASE_DIR, conf['users_dir'], model_base)
             else:
-                conf['users_dir'] = os.path.join(conf['users_dir'], model_name)
+                conf['users_dir'] = os.path.join(conf['users_dir'], model_base)
             return conf
     except Exception as e:
         print(f"CRITICAL: Failed to load config from {CONFIG_PATH}: {e}")
@@ -293,9 +296,11 @@ class FaceDaemon:
         
         # New: Search Locations
         search_dirs = [self.config['users_dir']]
+        # Strip _int8 for local user dir as well
+        model_base = self.config.get("model_name", "buffalo_l").replace("_int8", "")
         try:
             pw = pwd.getpwnam(username)
-            user_local_dir = os.path.join(pw.pw_dir, ".linux-bonjour", "users", self.config.get("model_name", "buffalo_l"))
+            user_local_dir = os.path.join(pw.pw_dir, ".linux-bonjour", "users", model_base)
             search_dirs.insert(0, user_local_dir)
         except Exception: pass
 

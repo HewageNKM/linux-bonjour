@@ -13,6 +13,7 @@ class SettingsView(QWidget):
     reset_requested = Signal()
     probe_requested = Signal()
     fix_perms_requested = Signal()
+    model_changed = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -107,10 +108,10 @@ class SettingsView(QWidget):
         m_header.addWidget(help_m)
         engine_layout.addLayout(m_header)
 
-        self.m_combo = QComboBox()
         self.m_combo.addItems(["buffalo_sc", "buffalo_s", "buffalo_l", "antelopev2"])
         self.m_combo.setMinimumHeight(40)
         self.m_combo.setToolTip("Select the deep learning model. 'buffalo_l' is most accurate but slower.")
+        self.m_combo.currentTextChanged.connect(self.model_changed.emit)
         engine_layout.addWidget(self.m_combo)
         
         self.download_btn = QPushButton("☁️ Download Model")

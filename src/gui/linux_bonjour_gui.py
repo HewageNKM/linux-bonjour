@@ -624,7 +624,8 @@ class LinuxBonjourGUI(QMainWindow):
 
     def has_face_data(self):
         model_name = self.config.get("model_name", "buffalo_l")
-        users_dir = os.path.join(PROJECT_ROOT, self.config.get("users_dir", "config/users"), model_name)
+        model_base = model_name.replace("_int8", "")
+        users_dir = os.path.join(PROJECT_ROOT, self.config.get("users_dir", "config/users"), model_base)
         return os.path.exists(users_dir) and any(f.endswith(".npy") or f.endswith(".enc") for f in os.listdir(users_dir))
 
     def on_start_daemon(self):
@@ -710,8 +711,9 @@ class LinuxBonjourGUI(QMainWindow):
             if "polkit" not in message.lower():
                 self.statusBar().showMessage(f"Restart Failed: {message}", 5000)
 
-    def on_model_selection_changed(self, index):
+    def on_model_selection_changed(self, model_name):
         self.update_model_download_button_visibility()
+        self.refresh_users()
 
     def update_model_download_button_visibility(self):
         model_name = self.settings_view.m_combo.currentText()
@@ -741,8 +743,10 @@ class LinuxBonjourGUI(QMainWindow):
             self.statusBar().showMessage(message, 5000)
         
     def refresh_users(self):
-        model_name = self.config.get("model_name", "buffalo_s")
-        users_dir = os.path.join(PROJECT_ROOT, self.config.get("users_dir", "config/users"), model_name)
+        # Always use the model name currently selected in settings for the user list preview
+        model_name = self.settings_view.m_combo.currentText()
+        model_base = model_name.replace("_int8", "")
+        users_dir = os.path.join(PROJECT_ROOT, self.config.get("users_dir", "config/users"), model_base)
         users = set()
         if os.path.exists(users_dir):
             try:
@@ -757,7 +761,8 @@ class LinuxBonjourGUI(QMainWindow):
         if not username: return
         if QMessageBox.question(self, 'Delete', f"Delete {username}?") == QMessageBox.Yes:
             model_name = self.config.get("model_name", "buffalo_s")
-            users_dir = os.path.join(PROJECT_ROOT, self.config.get("users_dir", "config/users"), model_name)
+            model_base = model_name.replace("_int8", "")
+            users_dir = os.path.join(PROJECT_ROOT, self.config.get("users_dir", "config/users"), model_base)
             path_enc = os.path.join(users_dir, f"{username}.enc")
             path_npy = os.path.join(users_dir, f"{username}.npy")
             
@@ -921,7 +926,8 @@ class LinuxBonjourGUI(QMainWindow):
             return False
 
         model_name = self.config.get("model_name", "buffalo_s")
-        users_dir = os.path.join(PROJECT_ROOT, self.config.get("users_dir", "config/users"), model_name)
+        model_base = model_name.replace("_int8", "")
+        users_dir = os.path.join(PROJECT_ROOT, self.config.get("users_dir", "config/users"), model_base)
         path_enc = os.path.join(users_dir, f"{username}.enc")
         path_npy = os.path.join(users_dir, f"{username}.npy")
 

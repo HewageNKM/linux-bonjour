@@ -54,7 +54,10 @@ def enroll_user(username=None):
     if faces:
         embedding = faces[0].normed_embedding
         
-        users_dir = config.get("users_dir", "config/users")
+        model_name = config.get("model_name", "buffalo_s")
+        model_base = model_name.replace("_int8", "")
+        users_dir = os.path.join(config.get("users_dir", "config/users"), model_base)
+        
         if not os.path.exists(users_dir):
             os.makedirs(users_dir)
             
