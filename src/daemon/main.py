@@ -510,8 +510,10 @@ class FaceDaemon:
                 self.dbus.emit_verified(username)
                 return "SUCCESS"
 
-        # 0.1 Manual User Approval (Legacy Zenity Fallback + D-Bus)
-        if self.config.get("auth_approval", True) and service != "gdm-password":
+        # 0.1 Manual User Approval (Zenity Fallback + D-Bus)
+        # Skip popup for services that already have a GUI (GDM, Polkit, etc.)
+        skip_popup = service in ["polkit-1", "gnome-screensaver", "lightdm", "sddm"] or service.startswith("gdm-")
+        if self.config.get("auth_approval", True) and not skip_popup:
             log_event(f"AUTH: Requesting user approval for {username} on {service}")
             
             # Send info to terminal
