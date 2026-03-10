@@ -13,8 +13,8 @@ StartLimitIntervalSec=0
 
 # --- Phase 8: Hardened Core (Sandbox) ---
 # Restrictions
-NoNewPrivileges=yes
-ProtectSystem=strict
+NoNewPrivileges=no
+ProtectSystem=full
 ProtectHome=read-only
 ReadWritePaths=/usr/share/linux-bonjour /run /var/log/linux-bonjour
 PrivateTmp=yes
