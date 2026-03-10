@@ -170,7 +170,7 @@ mkdir -p "$PKG_ROOT/usr/share/linux-bonjour/models"
 # Create the wrapper script
 cat <<EOF > pkg/usr/bin/linux-bonjour
 #!/bin/bash
-/usr/share/linux-bonjour/venv/bin/python /usr/share/linux-bonjour/src/gui/pyside_gui.py "\$@"
+/usr/share/linux-bonjour/venv/bin/python /usr/share/linux-bonjour/src/gui/linux_bonjour_gui.py "\$@"
 EOF
 chmod +x pkg/usr/bin/linux-bonjour
 

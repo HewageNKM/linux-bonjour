@@ -30,6 +30,7 @@ from gui.ui.styles import GLOBAL_STYLE, SIDEBAR_COLOR, ACCENT_CYAN, GLASS_WHITE,
 from gui.ui.views.dashboard import DashboardView
 from gui.ui.views.enrollment import EnrollmentView
 from gui.ui.views.settings import SettingsView
+from gui.ui.views.logs import LogsView
 
 class StatusWorker(QThread):
     status_signal = Signal(bool)
@@ -348,7 +349,8 @@ class LinuxBonjourGUI(QMainWindow):
         items = [
             (" 🏠 DASHBOARD", "overview"),
             (" 🤳 ENROLLMENT", "enroll"),
-            (" ⚙️ SETTINGS", "settings")
+            (" ⚙️ SETTINGS", "settings"),
+            (" 📝 SYSTEM LOGS", "logs")
         ]
         for text, key in items:
             item = QListWidgetItem(text)
@@ -397,10 +399,12 @@ class LinuxBonjourGUI(QMainWindow):
         self.dashboard_view = DashboardView()
         self.enrollment_view = EnrollmentView()
         self.settings_view = SettingsView()
+        self.logs_view = LogsView()
         
         self.stack.addWidget(self.dashboard_view)
         self.stack.addWidget(self.enrollment_view)
         self.stack.addWidget(self.settings_view)
+        self.stack.addWidget(self.logs_view)
         
         self.container_layout.addWidget(self.stack)
         main_layout.addWidget(container, 1)
@@ -432,7 +436,7 @@ class LinuxBonjourGUI(QMainWindow):
 
     def on_nav_changed(self, index):
         self.stack.setCurrentIndex(index)
-        titles = ["DASHBOARD", "IDENTITY ENROLLMENT", "ADVANCED SETTINGS"]
+        titles = ["DASHBOARD", "IDENTITY ENROLLMENT", "ADVANCED SETTINGS", "SYSTEM JOURNAL"]
         self.header_label.setText(titles[index])
         
         if index == 0: # Dashboard
