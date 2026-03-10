@@ -386,20 +386,10 @@ class LinuxBonjourGUI(QMainWindow):
         
         self.sidebar.currentRowChanged.connect(self.on_nav_changed)
         
-        # v1.2.0 Fullscreen Toggle Button at Sidebar Bottom
-        spacer = QWidget()
-        spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        
-        self.fs_btn = QPushButton(" 📺  FULLSCREEN ")
-        self.fs_btn.setObjectName("secondaryBtn")
-        self.fs_btn.setMinimumHeight(50)
-        self.fs_btn.clicked.connect(self.toggle_fullscreen)
-        
         sidebar_layout = QVBoxLayout()
         sidebar_layout.setContentsMargins(10, 20, 10, 20)
         sidebar_layout.addWidget(self.sidebar)
         sidebar_layout.addStretch()
-        sidebar_layout.addWidget(self.fs_btn)
         
         sidebar_container = QWidget()
         sidebar_container.setLayout(sidebar_layout)

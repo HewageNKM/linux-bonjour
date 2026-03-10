@@ -623,6 +623,7 @@ class FaceDaemon:
 
         targets = self.get_targets(username)
         if not targets:
+            print("No Face Data!")
             # Only log if NOT throttled (throttling already logs its own message)
             if username not in self.failed_attempts or \
                (time.time() - self.failed_attempts[username][1]) >= self.config.get('cooldown_time', 60) or \
