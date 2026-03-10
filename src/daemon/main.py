@@ -20,11 +20,13 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 # Robust import for DBusManager (handles standalone vs module execution)
 try:
     from dbus_service import DBusManager
+    from liveness import LBPLiveness
 except ImportError:
     import sys
     import os
     sys.path.append(os.path.dirname(os.path.abspath(__file__)))
     from dbus_service import DBusManager
+    from liveness import LBPLiveness
 
 # --- Global Config ---
 LOGIN_SERVICES = ["gdm-password", "lightdm", "sddm", "login", "polkit-1"]
@@ -219,6 +221,7 @@ class FaceDaemon:
         # Initialize camera
         self.cam = IRCamera(config=self.config)
         self.cam_lock = Lock()
+        self.liveness = LBPLiveness()
         self.users_dir = "" # Will be set in reload_config
         self.reload_config()
         # Startup Directory Verification
@@ -692,6 +695,18 @@ class FaceDaemon:
                     faces = self.app.get(frame)
                 else:
                     faces = []
+                
+                # Filter for liveness (Passive LBP) - Phase 30
+                if self.config.get("passive_liveness_enabled", True):
+                    alive_faces = []
+                    for face in faces:
+                        score, is_live = self.liveness.analyze(frame, face.bbox)
+                        if is_live:
+                            alive_faces.append(face)
+                        else:
+                            if attempt % 10 == 0:
+                                log_event(f"SECURITY: Potential spoofing detected (LBP Score: {score:.2f})")
+                    faces = alive_faces
             
             if not faces:
                 # Optimized Phase 2 & 5: Adaptive sleep

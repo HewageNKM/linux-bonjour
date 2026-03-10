@@ -122,9 +122,13 @@ class SettingsView(QWidget):
         self.download_btn.clicked.connect(lambda: self.download_requested.emit(self.m_combo.currentText()))
         engine_layout.addWidget(self.download_btn)
 
-        self.smile_toggle = QCheckBox("SMILE TO UNLOCK (NITRO LIVENESS)")
+        self.smile_toggle = QCheckBox("SMILE TO UNLOCK (ACTIVE LIVENESS)")
         self.smile_toggle.setToolTip("Require a detected smile to authenticate. Adds an extra layer of anti-spoofing.")
         engine_layout.addWidget(self.smile_toggle)
+
+        self.passive_liveness_toggle = QCheckBox("PASSIVE AI ANTI-SPOOFING (LBP)")
+        self.passive_liveness_toggle.setToolTip("Analyze facial textures in real-time to detect photos, screens, or masks (< 10ms).")
+        engine_layout.addWidget(self.passive_liveness_toggle)
         
         engine_group.setLayout(engine_layout)
         container_layout.addWidget(engine_group)
@@ -250,6 +254,7 @@ class SettingsView(QWidget):
             "notifications_enabled": self.notifications_toggle.isChecked(),
             "show_scanner_overlay": self.show_overlay_toggle.isChecked(),
             "smile_required": self.smile_toggle.isChecked(),
+            "passive_liveness_enabled": self.passive_liveness_toggle.isChecked(),
             "max_failures": self.max_fail_spin.value(),
             "grace_period": self.grace_period_spin.value(),
             "cooldown_time": self.cooldown_spin.value()
@@ -267,6 +272,7 @@ class SettingsView(QWidget):
         self.notifications_toggle.setChecked(config.get("notifications_enabled", True))
         self.show_overlay_toggle.setChecked(config.get("show_scanner_overlay", True))
         self.smile_toggle.setChecked(config.get("smile_required", False))
+        self.passive_liveness_toggle.setChecked(config.get("passive_liveness_enabled", True))
         self.max_fail_spin.setValue(config.get("max_failures", 3))
         self.grace_period_spin.setValue(config.get("grace_period", 0))
         self.cooldown_spin.setValue(config.get("cooldown_time", 60))

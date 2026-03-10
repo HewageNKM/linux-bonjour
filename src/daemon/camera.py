@@ -26,19 +26,63 @@ class Camera:
         self.frame_queue = queue.Queue(maxsize=1)
 
     def _find_camera(self):
+        """Discovers the best camera, prioritizing IR sensors."""
         manual_index = self.config.get("camera_index")
         if manual_index is not None and manual_index != -1:
             return manual_index, self.config.get("camera_type", "AUTO")
 
-        for i in [2, 4, 6, 0, 1, 3]:
-            if os.path.exists(f"/dev/video{i}"):
-                cap = cv2.VideoCapture(i)
-                if cap.isOpened():
-                    ret, _ = cap.read()
-                    cap.release()
-                    if ret:
-                        return i, "AUTO"
+        # Step 1: Probe for hardware-labeled IR cameras in /sys
+        ir_candidates = []
+        rgb_candidates = []
+        
+        try:
+            v4l_dir = "/sys/class/video4linux"
+            if os.path.exists(v4l_dir):
+                for dev in sorted(os.listdir(v4l_dir)):
+                    index = int(dev.replace("video", ""))
+                    name_path = os.path.join(v4l_dir, dev, "name")
+                    if os.path.exists(name_path):
+                        with open(name_path, "r") as f:
+                            name = f.read().lower()
+                            if "ir" in name or "infrared" in name or "depth" in name:
+                                ir_candidates.append(index)
+                            else:
+                                rgb_candidates.append(index)
+        except Exception as e:
+            print(f"Camera Probe Error: {e}")
+
+        # Step 2: Try IR candidates first
+        for i in ir_candidates:
+            if self._test_device(i):
+                print(f"✅ IR Camera Found: /dev/video{i}")
+                return i, "IR"
+
+        # Step 3: Fallback to RGB candidates
+        for i in rgb_candidates:
+            if self._test_device(i):
+                print(f"ℹ️ RGB Camera Fallback: /dev/video{i}")
+                return i, "RGB"
+
+        # Step 4: Final hardcoded fallback
+        for i in [0, 1, 2, 4, 6]:
+            if self._test_device(i):
+                return i, "AUTO"
+
         return 0, "UNKNOWN"
+
+    def _test_device(self, index):
+        """Verifies if a camera device can actually provide frames."""
+        try:
+            if not os.path.exists(f"/dev/video{index}"):
+                return False
+            cap = cv2.VideoCapture(index)
+            if cap.isOpened():
+                ret, _ = cap.read()
+                cap.release()
+                return ret
+        except:
+            pass
+        return False
 
     def start(self):
         """Starts the background thread for continuous frame polling."""
