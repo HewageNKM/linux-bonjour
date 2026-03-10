@@ -54,10 +54,23 @@ sudo systemctl daemon-reload
 echo "Fixing configuration permissions..."
 sudo chown -R $REAL_USER:$REAL_USER "$PROJECT_DIR/config"
 
-# 7. Create Polkit Policy & Desktop Entry
+# 7. Create Polkit Policy, Icon & Desktop Entry
+echo "Installing application icon..."
+ICON_DIR="/usr/share/icons/hicolor/scalable/apps"
+sudo mkdir -p "$ICON_DIR"
+sudo cp "$PROJECT_DIR/src/gui/assets/logo.png" "$ICON_DIR/linux-bonjour.png"
+
 echo "Installing polkit policy..."
 sudo cp "$PROJECT_DIR/org.linuxbonjour.policy" /usr/share/polkit-1/actions/
 sudo chmod 644 /usr/share/polkit-1/actions/org.linuxbonjour.policy
+
+echo "Creating binary wrapper..."
+WRAPPER_PATH="/usr/local/bin/linux-bonjour"
+cat <<EOF | sudo tee $WRAPPER_PATH > /dev/null
+#!/bin/bash
+"$PROJECT_DIR/venv/bin/python" "$PROJECT_DIR/src/gui/pyside_gui.py" "\$@"
+EOF
+sudo chmod +x $WRAPPER_PATH
 
 echo "Creating desktop entry for Management Console..."
 DESKTOP_FILE="/usr/share/applications/linux-bonjour.desktop"
