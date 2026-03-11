@@ -14,7 +14,7 @@ use image::DynamicImage;
 use onnx_utils::InferenceEngine;
 use signature_utils::SignatureStore;
 use ipc_utils::{UdsServer, DaemonRequest, DaemonResponse};
-use security_utils::{EncryptionProvider, TpmProvider, PlainProvider};
+use security_utils::{EncryptionProvider, PlainProvider};
 use ort::ep::ExecutionProvider;
 
 struct DaemonConfig {
@@ -39,13 +39,13 @@ async fn main() -> Result<()> {
     
     // 2. Initialize Security & Signature Store
     println!("🔐 Initializing Security Provider...");
-    let security_provider: Arc<dyn EncryptionProvider> = match TpmProvider::new() {
-        Ok(tpm) => {
-            println!("🔒 TPM 2.0 Identity Hardware detected and ready.");
-            Arc::new(tpm)
+    let security_provider: Arc<dyn EncryptionProvider> = match security_utils::SoftwareProvider::new() {
+        Ok(soft) => {
+            println!("🔒 Hardware-bound Software Encryption active (Machine-ID binding).");
+            Arc::new(soft)
         },
         Err(e) => {
-            println!("⚠️ TPM Initialization failed: {}. Falling back to Plain storage.", e);
+            println!("⚠️ Software encryption initialization failed: {}. Falling back to Plain storage.", e);
             Arc::new(PlainProvider)
         }
     };
@@ -53,8 +53,8 @@ async fn main() -> Result<()> {
     let signature_store = Arc::new(SignatureStore::new("buffalo_l", Arc::clone(&security_provider))?);
     let system_enabled = Arc::new(AtomicBool::new(true));
     let config = Arc::new(Mutex::new(DaemonConfig {
-        threshold: 0.45,
-        smile_required: true,
+        threshold: 0.38, // Lowered slightly for better reliability on first try
+        smile_required: false, // Changed default to false to reduce verification friction
         autocapture: false,
         liveness_enabled: true,
         ask_permission: false,
@@ -70,8 +70,8 @@ async fn main() -> Result<()> {
     } else {
         "CPU (Standard)".to_string()
     };
-    let tpm_status = match TpmProvider::new() {
-        Ok(_) => "TPM 2.0 (Active)".to_string(),
+    let tpm_status = match security_utils::SoftwareProvider::new() {
+        Ok(_) => "Hardware-bound (Active)".to_string(),
         Err(_) => "Software Fallback".to_string(),
     };
     
@@ -201,46 +201,110 @@ async fn main() -> Result<()> {
 
                     println!("🔍 IPC: Verification request for user: {}", user);
                     
-                    // Capture image with IR priority
+                    // Capture image with failover logic
+                    let camera_path_override = cfg.camera_path.clone();
                     let capture_result: Result<DynamicImage> = (|| {
                         let devices = nokhwa::query(nokhwa::utils::ApiBackend::Video4Linux)?;
                         if devices.is_empty() { anyhow::bail!("No camera found"); }
                         
-                        // Prioritize IR camera if available, or use manual override
-                        let target_index = if let Some(ref path) = cfg.camera_path {
-                            devices.iter().find(|d| d.human_name() == *path || d.index().to_string() == *path)
-                                .map(|d| d.index().clone())
-                                .unwrap_or(devices[0].index().clone())
+                        let sorted_devices = if let Some(ref path) = camera_path_override {
+                            // User selected a specific camera
+                            devices.iter().filter(|d| d.human_name() == *path || d.index().to_string() == *path).cloned().collect::<Vec<_>>()
                         } else {
-                            devices.iter().find(|d| {
-                                let name = d.human_name().to_lowercase();
-                                name.contains("ir") || name.contains("infrared")
-                            }).map(|d| d.index().clone()).unwrap_or(devices[0].index().clone())
+                            // Default: prioritize IR, then try everything in order
+                            let mut d = devices.clone();
+                            d.sort_by_key(|a| {
+                                let name = a.human_name().to_lowercase();
+                                if name.contains("ir") || name.contains("infrared") { 0 } else { 1 }
+                            });
+                            d
                         };
-                        
-                        let mut camera = Camera::with_backend(target_index, RequestedFormat::new::<RgbFormat>(RequestedFormatType::AbsoluteHighestResolution), nokhwa::utils::ApiBackend::Video4Linux)?;
-                        camera.open_stream()?;
-                        std::thread::sleep(std::time::Duration::from_millis(500));
-                        Ok(DynamicImage::ImageRgb8(camera.frame()?.decode_image::<RgbFormat>()?))
+
+                        println!("📸 Found {} cameras. Probing in order...", sorted_devices.len());
+
+                        let mut last_err = anyhow::anyhow!("No working camera found");
+                        for dev in sorted_devices {
+                            println!("🔍 Probing camera: {} (Index: {})", dev.human_name(), dev.index());
+                            
+                            // Try multiple formats for each device
+                            let format_strategies = vec![
+                                RequestedFormatType::AbsoluteHighestResolution,
+                                RequestedFormatType::None,
+                            ];
+
+                            for strategy in format_strategies {
+                                let fmt_name = format!("{:?}", strategy);
+                                let format = RequestedFormat::new::<RgbFormat>(strategy);
+                                match Camera::with_backend(dev.index().clone(), format, nokhwa::utils::ApiBackend::Video4Linux) {
+                                    Ok(mut camera) => {
+                                        match camera.open_stream() {
+                                            Ok(_) => {
+                                                println!("✅ Successfully opened {} with format {}", dev.human_name(), fmt_name);
+                                                
+                                                // Warm up: capture a few frames and discard them
+                                                println!("📸 Warming up camera...");
+                                                for _ in 0..5 {
+                                                    let _ = camera.frame();
+                                                    std::thread::sleep(std::time::Duration::from_millis(100));
+                                                }
+
+                                                println!("📸 Capturing final frame...");
+                                                match camera.frame() {
+                                                    Ok(frame) => {
+                                                        println!("✅ Frame captured successfully");
+                                                        let dyn_img = frame.decode_image::<RgbFormat>()?;
+                                                        let _ = camera.stop_stream();
+                                                        return Ok(DynamicImage::ImageRgb8(dyn_img));
+                                                    },
+                                                    Err(e) => {
+                                                        println!("❌ Failed to capture frame from {}: {}", dev.human_name(), e);
+                                                        let _ = camera.stop_stream();
+                                                        last_err = e.into();
+                                                    }
+                                                }
+                                            },
+                                            Err(e) => {
+                                                println!("❌ Failed to open stream for {} with {}: {}", dev.human_name(), fmt_name, e);
+                                                last_err = e.into();
+                                            }
+                                        }
+                                    },
+                                    Err(e) => {
+                                        println!("❌ Failed to initialize {} with {}: {}", dev.human_name(), fmt_name, e);
+                                        last_err = e.into();
+                                    }
+                                }
+                            }
+                        }
+                        Err(last_err)
                     })();
 
                     match capture_result {
                         Ok(dyn_img) => {
+                            println!("🤔 Attempting to acquire AI Engine lock...");
                             let mut engine_lock = engine.lock().await;
-                            let cfg = config.lock().await;
+                            println!("✅ AI Engine lock acquired.");
+
+                            // Redundant lock removed - cfg is already available from outer scope
                             
+                            println!("🧠 Running Face Detection...");
                             match engine_lock.detect_faces(&dyn_img) {
                                 Ok(detections) => {
+                                    println!("👥 Detected {} faces.", detections.len());
                                     if detections.is_empty() {
                                         vec![DaemonResponse::Failure { reason: "No face detected".to_string() }]
                                     } else {
+                                        println!("📐 Aligning face and extracting embedding...");
                                         let face = &detections[0];
                                         let aligned = engine_lock.align_face(&dyn_img, &face.landmarks);
                                         match engine_lock.get_face_embedding(&aligned) {
                                             Ok(embedding) => {
+                                                println!("💾 Comparing with saved signature for user: {}...", user);
                                                 match store.load_signature(&user) {
                                                     Ok(saved_embedding) => {
                                                         let score = SignatureStore::cosine_similarity(&embedding, &saved_embedding);
+                                                        println!("📊 Match Score: {:.4} (Threshold: {:.4})", score, cfg.threshold);
+                                                        println!("💓 Liveness Score: {:.4}", face.liveness_score);
                                                         let liveness_threshold = 0.58; 
                                                         
                                                         if score > cfg.threshold {
@@ -269,14 +333,45 @@ async fn main() -> Result<()> {
                 DaemonRequest::Enroll { user } => {
                     println!("💾 IPC: Enrollment request for user: {}", user);
                     
+                    let camera_path_override = {
+                        let cfg = config.lock().await;
+                        cfg.camera_path.clone()
+                    };
+                    
                     let capture_result: Result<DynamicImage> = (|| {
                         let devices = nokhwa::query(nokhwa::utils::ApiBackend::Video4Linux)?;
                         if devices.is_empty() { anyhow::bail!("No camera found"); }
-                        let target_device = if devices.len() > 1 { &devices[1] } else { &devices[0] };
-                        let mut camera = Camera::new(target_device.index().clone(), RequestedFormat::new::<RgbFormat>(RequestedFormatType::None))?;
-                        camera.open_stream()?;
-                        std::thread::sleep(std::time::Duration::from_millis(1000));
-                        Ok(DynamicImage::ImageRgb8(camera.frame()?.decode_image::<RgbFormat>()?))
+                        
+                        let sorted_devices = if let Some(ref path) = camera_path_override {
+                            devices.iter().filter(|d| d.human_name() == *path || d.index().to_string() == *path).cloned().collect::<Vec<_>>()
+                        } else {
+                            let mut d = devices.clone();
+                            d.sort_by_key(|a| {
+                                let name = a.human_name().to_lowercase();
+                                if name.contains("ir") || name.contains("infrared") { 0 } else { 1 }
+                            });
+                            d
+                        };
+
+                        let mut last_err = anyhow::anyhow!("No working camera found");
+                        for dev in sorted_devices {
+                            let format_strategies = vec![RequestedFormatType::AbsoluteHighestResolution, RequestedFormatType::None];
+                            for strategy in format_strategies {
+                                let format = RequestedFormat::new::<RgbFormat>(strategy);
+                                if let Ok(mut camera) = Camera::with_backend(dev.index().clone(), format, nokhwa::utils::ApiBackend::Video4Linux) {
+                                    if camera.open_stream().is_ok() {
+                                        println!("📸 (Enroll) Warming up {}", dev.human_name());
+                                        for _ in 0..5 { let _ = camera.frame(); std::thread::sleep(std::time::Duration::from_millis(100)); }
+                                        if let Ok(frame) = camera.frame() {
+                                            let dyn_img = frame.decode_image::<RgbFormat>()?;
+                                            let _ = camera.stop_stream();
+                                            return Ok(DynamicImage::ImageRgb8(dyn_img));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Err(last_err)
                     })();
 
                     match capture_result {

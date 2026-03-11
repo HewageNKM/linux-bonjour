@@ -191,6 +191,10 @@ pub unsafe extern "C" fn pam_sm_authenticate(
                                 unsafe { send_message(pamh, PAM_TEXT_INFO, &format!("ℹ️ [Bonjour] {}", msg)) };
                             }
                         },
+                        DaemonResponse::Success { .. } => {
+                            success = true;
+                            break;
+                        },
                         DaemonResponse::Failure { reason } => {
                             failure_reason = reason;
                             success = false;
