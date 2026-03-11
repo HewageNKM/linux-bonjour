@@ -4,7 +4,7 @@
 
 Linux Bonjour is a high-performance, enterprise-grade biometric authentication suite built exclusively for Ubuntu/GNOME. Transitioning from legacy Python to a full **Rust Core**, it offers a memory-safe, hardware-bound security layer for your login screen, terminal, and GUI administrative prompts.
 
-![Linux Bonjour Branding](file:///home/kawishika/Documents/Projects/linux-bonjour/src/bonjour-gui/src/assets/logo.png)
+![Linux Bonjour Branding](https://github.com/HewageNKM/linux-bonjour/blob/main/src/bonjour-gui/src/assets/logo.png)
 
 ---
 
