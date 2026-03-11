@@ -218,7 +218,7 @@ async fn main() -> Result<()> {
                             }).map(|d| d.index().clone()).unwrap_or(devices[0].index().clone())
                         };
                         
-                        let mut camera = Camera::new(target_index, RequestedFormat::new::<RgbFormat>(RequestedFormatType::None))?;
+                        let mut camera = Camera::with_backend(target_index, RequestedFormat::new::<RgbFormat>(RequestedFormatType::AbsoluteHighestResolution), nokhwa::utils::ApiBackend::Video4Linux)?;
                         camera.open_stream()?;
                         std::thread::sleep(std::time::Duration::from_millis(500));
                         Ok(DynamicImage::ImageRgb8(camera.frame()?.decode_image::<RgbFormat>()?))

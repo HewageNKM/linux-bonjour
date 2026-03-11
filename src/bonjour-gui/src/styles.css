@@ -609,10 +609,10 @@ pre {
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(128, 128, 128, 0.2);
+  background-color: #ffffff;
   transition: .3s;
   border-radius: 20px;
-  border: 1px solid var(--glass-border);
+  border: 2px solid #000000;
 }
 
 .switch-slider:before {
@@ -620,17 +620,16 @@ pre {
   content: "";
   height: 14px;
   width: 14px;
-  left: 3px;
-  bottom: 3px;
-  background-color: #ffffff;
+  left: 2px;
+  bottom: 1px;
+  background-color: #000000;
   transition: .3s;
   border-radius: 50%;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.4);
 }
 
 input:checked + .switch-slider {
-  background-color: var(--success) !important;
-  border-color: var(--success) !important;
+  background-color: #000000 !important;
+  border-color: #000000 !important;
 }
 
 input:checked + .switch-slider:before {
