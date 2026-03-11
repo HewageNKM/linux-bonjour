@@ -1,22 +1,24 @@
 [Unit]
-Description=Linux Bonjour Face Recognition Daemon
-After=network.target
+Description=Linux Bonjour Biometric Authentication Daemon
+After=network.target network-online.target camera.target
+Wants=camera.target
 
 [Service]
 Type=simple
-User=root
-WorkingDirectory=/usr/share/linux-bonjour
-ExecStart=/usr/share/linux-bonjour/venv/bin/python src/daemon/main.py
-Restart=on-failure
-RestartSec=5s
-StartLimitIntervalSec=0
+ExecStart=/usr/bin/linux-bonjour-daemon
+Restart=always
+RestartSec=3
+Environment=RUST_LOG=info
+
+# Standard Runtime Directories
+RuntimeDirectory=linux-bonjour
+StateDirectory=linux-bonjour
 
 # Hardening and Sandboxing
-NoNewPrivileges=no
+NoNewPrivileges=yes
 ProtectSystem=full
 ProtectHome=read-only
 PrivateTmp=yes
-ReadWritePaths=/var/lib/linux-bonjour
 CapabilityBoundingSet=CAP_SETUID CAP_SETGID CAP_DAC_OVERRIDE
 DeviceAllow=/dev/video0 rw
 DeviceAllow=/dev/video1 rw

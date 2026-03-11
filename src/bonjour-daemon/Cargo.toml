@@ -1,0 +1,30 @@
+[package]
+name = "bonjour-daemon"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+
+ort = { version = "2.0.0-rc.12", features = ["ndarray", "download-binaries"] }
+nokhwa = { version = "0.10", features = ["input-v4l"] }
+ndarray = "0.17"
+image = "0.25"
+nalgebra = "0.33"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["codec"] }
+futures = "0.3"
+log = "0.4"
+env_logger = "0.10"
+ring = "0.17"
+base64 = "0.21"
+unix_socket = "0.5" # Optional if using tokio's UnixStream
+zbus = "3.14" # For DBus integration
+home = "0.5"
+pxfm = "0.1"
+moxcms = "0.8.1"
+tss-esapi = "7.5"

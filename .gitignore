@@ -2,28 +2,31 @@
 venv/
 .venv/
 env/
-venv_build
-*_venv
+venv_build/
+*_venv/
 
 # Python
 __pycache__/
 *.py[cod]
 *$py.class
 
-# Rust
+# Rust & Tauri
 target/
-src/pam_rs/target/
+**/target/
 Cargo.lock
+**/node_modules/
+.tauri/
 
-# Compiled PAM modules
+# Compiled Artifacts
 *.so
 src/pam/*.so
-src/pam_rs/target/release/*.so
 
 # Project Specific
 config/*.npy
 config/users/
 models/
+signatures/
+/run/linux-bonjour/
 
 # Build Artifacts
 *.deb
@@ -36,3 +39,4 @@ linux-bonjour_*.deb
 .vscode/
 .idea/
 *.swp
+*.bak

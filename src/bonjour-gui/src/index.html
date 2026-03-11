@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="styles.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Linux Bonjour Console</title>
+  </head>
+
+  <body>
+    <div id="app">
+      <aside class="sidebar">
+        <div class="logo">
+          <span class="logo-icon">🦀</span>
+          <span class="logo-text">Bonjour</span>
+        </div>
+        <nav>
+          <button class="nav-item active" data-view="dashboard">
+            <span class="icon">📊</span> Dashboard
+          </button>
+          <button class="nav-item" data-view="enrollment">
+            <span class="icon">👤</span> Enrollment
+          </button>
+          <button class="nav-item" data-view="settings">
+            <span class="icon">⚙️</span> Settings
+          </button>
+          <button class="nav-item" data-view="logs">
+            <span class="icon">📜</span> System Logs
+          </button>
+        </nav>
+        <div class="sidebar-footer">
+          <div class="version">v2.0.0-rust</div>
+        </div>
+      </aside>
+
+      <main class="content">
+        <!-- Dashboard View -->
+        <section id="view-dashboard" class="view active">
+          <div class="header-compact">
+            <h2>System Overview</h2>
+            <div class="system-toggle-inline">
+              <span>System Active</span>
+              <label class="switch">
+                  <input type="checkbox" id="system-enabled" checked>
+                  <span class="slider round"></span>
+              </label>
+            </div>
+          </div>
+
+          <div class="grid-stats">
+            <div class="stat-card">
+              <span class="stat-label">Identities</span>
+              <span id="stat-identities" class="stat-value">0</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">Service Status</span>
+              <span id="stat-status" class="stat-value success">Active</span>
+            </div>
+          </div>
+
+          <section class="log-container">
+            <h3>Recent Activity</h3>
+            <div id="status-log" class="status-log">
+              <div class="log-entry info">Console ready. Monitoring daemon...</div>
+            </div>
+          </section>
+        </section>
+
+        <!-- Enrollment View -->
+        <section id="view-enrollment" class="view">
+          <h2>Identity Management</h2>
+          <div class="enrollment-layout">
+            <div class="identity-list-container">
+              <h3>Trusted Identities</h3>
+              <div id="identity-list" class="identity-list">
+                <!-- Populated by JS -->
+                <div class="empty-state">No identities enrolled.</div>
+              </div>
+            </div>
+            <div class="enroll-form card">
+              <h3>New Enrollment</h3>
+              <div class="input-group">
+                <input type="text" id="username" placeholder="Username..." value="kawishika" />
+                <button id="enroll-btn">Capture Face</button>
+              </div>
+              <p class="hint">Ensure good lighting for biometric capture.</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- Settings View -->
+        <section id="view-settings" class="view">
+          <h2>System Settings</h2>
+          <div class="settings-grid">
+            <div class="settings-card card">
+              <h3>Recognition Engine</h3>
+              <div class="setting-item">
+                <label>Match Sensitivity</label>
+                <div class="range-container">
+                  <input type="range" id="threshold-slider" min="0" max="100" value="45">
+                  <span id="threshold-value">0.45</span>
+                </div>
+              </div>
+              <div class="setting-item">
+                <label>Liveness Requirements</label>
+                <div class="checkbox-group">
+                  <label class="cb-container">
+                    <input type="checkbox" id="setting-smile" checked>
+                    Smile to unlock
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="actions">
+            <button id="save-settings-btn" class="primary">Save Configuration</button>
+          </div>
+        </section>
+
+        <!-- Logs View -->
+        <section id="view-logs" class="view">
+          <div class="header-compact">
+            <h2>System Logs</h2>
+            <button id="refresh-logs" class="secondary small">Refresh</button>
+          </div>
+          <div class="journal-view">
+            <pre id="journal-output">Initializing journal viewer...</pre>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script type="module" src="/main.js"></script>
+  </body>
+</html>
