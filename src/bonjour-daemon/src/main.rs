@@ -204,7 +204,7 @@ async fn main() -> Result<()> {
                             name.contains("ir") || name.contains("infrared")
                         }).map(|d| d.index().clone()).unwrap_or(devices[0].index().clone());
                         
-                        let mut camera = Camera::new(target_index, RequestedFormat::new::<RgbFormat>(RequestedFormatType::AbsoluteHighestResolution))?;
+                        let mut camera = Camera::new(target_index, RequestedFormat::new::<RgbFormat>(RequestedFormatType::Closest))?;
                         camera.open_stream()?;
                         std::thread::sleep(std::time::Duration::from_millis(500));
                         Ok(DynamicImage::ImageRgb8(camera.frame()?.decode_image::<RgbFormat>()?))
