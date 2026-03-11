@@ -1,23 +1,24 @@
-# 🛡️ Linux Bonjour v1.1.0
-**Professional Biometric Face-Recognition Authentication for Linux**
+# 🛡️ Linux Bonjour
+
+## Professional Biometric Face-Recognition Authentication for Linux
 
 Linux Bonjour brings seamless, secure, and premium face-unlock to your Ubuntu/GNOME desktop. Built with a memory-safe **Rust PAM module** and a high-performance **Python AI daemon**, it offers a first-class native experience for logins, `sudo`, and administrative prompts.
 
 ---
 
-## 🌟 Key Features (v1.1.0)
+## 🌟 Key Features
 
 - 🎨 **Premium Glassmorphism Design**: High-end translucent UI with cyber-cyan accents, frosted glass effects, and a modern desktop aesthetic.
 - 🔐 **Hardware-Bound Encryption**: Biometric signatures are protected with **AES-GCM (256-bit)** using keys derived from your system's `machine-id`.
-- 🤳 **Hybrid Face Capture**: 
-    - **Live Scanner**: Real-time tracking and alignment using custom-styled ScannerOverlays.
-    - **Auto-Enrollment**: Intelligent countdown for hands-free biometric signature capture.
+- 🤳 **Hybrid Face Capture**:
+  - **Live Scanner**: Real-time tracking and alignment using custom-styled ScannerOverlays.
+  - **Auto-Enrollment**: Intelligent countdown for hands-free biometric signature capture.
 - ⚙️ **Granular Face ID Toggling**: Independent control for **Login (GDM/SDDM/LightDM)**, **Sudo (Terminal)**, and **Polkit (GUI Admin Prompts)**.
 - 🛡️ **Terminal Feedback**: Real-time "Scanning...", "Matched!", and "Failed" messages directly in your terminal via **PAM Conversations**.
 - 🔄 **Intelligent Verification Loop**: A robust 3.5s (adjustable) "searching" experience that handles blurry frames and brief occlusions.
 - 🕵️ **Privacy & Performance**:
-    - **Logging Toggle**: Enable or disable detailed authentication logs via the GUI.
-    - **Connection Peek**: Daemon automatically stops scanning if you start typing your password or cancel the session.
+  - **Logging Toggle**: Enable or disable detailed authentication logs via the GUI.
+  - **Connection Peek**: Daemon automatically stops scanning if you start typing your password or cancel the session.
 
 ---
 
