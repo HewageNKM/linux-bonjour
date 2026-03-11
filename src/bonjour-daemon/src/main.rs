@@ -15,7 +15,7 @@ use image::DynamicImage;
 use onnx_utils::InferenceEngine;
 use signature_utils::SignatureStore;
 use ipc_utils::{UdsServer, DaemonRequest, DaemonResponse, CameraInfo};
-use security_utils::{EncryptionProvider, PlainProvider, SoftwareProvider};
+use security_utils::{EncryptionProvider, PlainProvider, SoftwareProvider, TpmProvider};
 
 #[derive(Serialize, Deserialize, Clone)]
 struct DaemonConfig {
@@ -111,14 +111,22 @@ async fn main() -> Result<()> {
     };
     
     println!("🔐 Initializing Security Provider...");
-    let provider: Arc<dyn EncryptionProvider + Send + Sync> = match SoftwareProvider::new() {
-        Ok(p) => {
-            println!("🔒 Hardware-bound Software Encryption active.");
-            Arc::new(p)
+    let tpm_active = Arc::new(AtomicBool::new(false));
+    let tpm_active_clone = Arc::clone(&tpm_active);
+    
+    let provider: Arc<dyn EncryptionProvider + Send + Sync> = match TpmProvider::new() {
+        Ok(tpm) => {
+            println!("🔒 Biometric TPM Active: Using Endorsement Hardware Sealing");
+            tpm_active.store(true, Ordering::SeqCst);
+            Arc::new(tpm)
         },
-        Err(_) => {
-            println!("🔓 Falling back to Plain (Insecure) provider.");
-            Arc::new(PlainProvider)
+        Err(e) => {
+            println!("⚠️ TPM Initialization Failed: {} - Defaulting to Software Fallback", e);
+            tpm_active.store(false, Ordering::SeqCst);
+            match SoftwareProvider::new() {
+                Ok(sw) => Arc::new(sw),
+                Err(_) => Arc::new(PlainProvider),
+            }
         }
     };
 
@@ -136,13 +144,16 @@ async fn main() -> Result<()> {
     let store_cloned = Arc::clone(&signature_store);
     let enabled_cloned = Arc::clone(&system_enabled);
     let config_cloned = Arc::clone(&config);
+    let accel_cloned = acceleration.clone();
+    let tpm_state_cloned = Arc::clone(&tpm_active_clone);
 
     server.start(move |req| {
         let engine = Arc::clone(&engine_cloned);
         let store = Arc::clone(&store_cloned);
         let enabled = Arc::clone(&enabled_cloned);
         let config = Arc::clone(&config_cloned);
-        let accel_locked = acceleration.clone();
+        let accel_locked = accel_cloned.clone();
+        let tpm_state = Arc::clone(&tpm_state_cloned);
         
         async move {
             match req {
@@ -192,8 +203,15 @@ async fn main() -> Result<()> {
                     } else {
                         "RGB Camera (Standard)".to_string()
                     };
+                    
+                    let tpm_string = if tpm_state.load(Ordering::SeqCst) {
+                        "Active (Device Secured)".to_string()
+                    } else {
+                        "Software Fallback (Active)".to_string()
+                    };
+                    
                     vec![DaemonResponse::HardwareStatus {
-                        tpm: "Software Fallback (Active)".to_string(),
+                        tpm: tpm_string,
                         acceleration: accel_locked,
                         camera: camera_type,
                     }]
