@@ -56,7 +56,7 @@ Section: utils
 Priority: optional
 Architecture: amd64
 Maintainer: HewageNKM <[EMAIL_ADDRESS]>
-Depends: libpam0g, libxcb-cursor0, libgl1, libglib2.0-0, libnotify-bin, tpm2-tools, libtss2-esys1, libtss2-tctildr1, libtss2-rc0, libtss2-mu1, libdbus-1-3, libwebkit2gtk-4.1-0, v4l-utils, curl, unzip
+Depends: libpam0g, libxcb-cursor0, libgl1, libglib2.0-0, libnotify-bin, tpm2-tools, libtss2-dev, libdbus-1-3, libwebkit2gtk-4.1-0, v4l-utils, curl, unzip
 Description:
   Linux Bonjour - Professional biometric face-recognition authentication.
   A secure, light-weight face-recognition authentication system for Linux.
@@ -100,9 +100,9 @@ echo "Hardening camera permissions..."
 groupadd -f video
 groupadd -f render
 # Add current user to video and render groups
-if [ -n "$SUDO_USER" ]; then
-    usermod -a -G video,render "$SUDO_USER"
-    echo "Added user $SUDO_USER to video/render groups."
+if [ -n "\$SUDO_USER" ]; then
+    usermod -a -G video,render "\$SUDO_USER"
+    echo "Added user \$SUDO_USER to video/render groups."
 fi
 
 # Apply udev rules
@@ -138,10 +138,10 @@ groupadd -f vtpm
 chown root:tss /var/lib/linux-bonjour
 chmod 755 /var/lib/linux-bonjour
 
-if [ -n "$SUDO_USER" ]; then
-    usermod -a -G tss "$SUDO_USER"
-    usermod -a -G vtpm "$SUDO_USER"
-    echo "Added $SUDO_USER to enterprise 'tss' and 'vtpm' Enclave Hardware groups."
+if [ -n "\$SUDO_USER" ]; then
+    usermod -a -G tss "\$SUDO_USER"
+    usermod -a -G vtpm "\$SUDO_USER"
+    echo "Added \$SUDO_USER to enterprise 'tss' and 'vtpm' Enclave Hardware groups."
 fi
 
 # 8.2 Camera Auto-Selection
@@ -222,12 +222,15 @@ cp config/linux-bonjour.service pkg/lib/systemd/system/
 cp config/linux-bonjour.logrotate pkg/etc/logrotate.d/linux-bonjour
 cp org.linuxbonjour.conf pkg/usr/share/linux-bonjour/
 cp org.linuxbonjour.policy pkg/usr/share/polkit-1/actions/ 2>/dev/null || true
-cp linux-bonjour.desktop pkg/usr/share/applications/ 2>/dev/null || true
-cp src/bonjour-gui/src-tauri/icons/icon.png pkg/usr/share/pixmaps/linux-bonjour.png 2>/dev/null || true
+cp linux-bonjour.desktop pkg/usr/share/applications/
+cp src/bonjour-gui/src-tauri/icons/icon.png pkg/usr/share/pixmaps/linux-bonjour.png
+cp src/bonjour-gui/src-tauri/icons/icon.png pkg/usr/share/pixmaps/com.kawishika.bonjour-gui.png
+cp src/bonjour-gui/src-tauri/icons/icon.png pkg/usr/share/pixmaps/linux-bonjour-gui.png
 
 # 3. Scripts Staging
 cp -r scripts pkg/usr/share/linux-bonjour/
 cp src/bonjour-gui/src-tauri/icons/icon.png pkg/usr/share/linux-bonjour/logo.png
+cp -r src/bonjour-gui/src-tauri/icons pkg/usr/share/linux-bonjour/icons
 
 # 3. Model staging
 mkdir -p "$PKG_ROOT/usr/share/linux-bonjour/models"

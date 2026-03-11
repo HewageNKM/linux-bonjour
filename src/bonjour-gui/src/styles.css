@@ -614,10 +614,10 @@ pre {
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: #ffffff;
+  background-color: #000000;
   transition: .3s;
   border-radius: 20px;
-  border: 2px solid #000000;
+  border: 2px solid #ffffff;
 }
 
 .switch-slider:before {
@@ -627,19 +627,19 @@ pre {
   width: 14px;
   left: 2px;
   bottom: 1px;
-  background-color: #000000;
+  background-color: #ffffff;
   transition: .3s;
   border-radius: 50%;
 }
 
 input:checked + .switch-slider {
-  background-color: #000000 !important;
-  border-color: #000000 !important;
+  background-color: #ffffff !important;
+  border-color: #ffffff !important;
 }
 
 input:checked + .switch-slider:before {
   transform: translateX(20px);
-  background-color: #ffffff !important;
+  background-color: #000000 !important;
 }
 
 /* Range Slider Fix */

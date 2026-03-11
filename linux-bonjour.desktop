@@ -8,3 +8,6 @@ Type=Application
 Categories=Settings;Security;Utility;
 Keywords=Face;Unlock;Security;Biometric;
 StartupNotify=true
+StartupWMClass=linux-bonjour-gui
+GenericName=Biometric Unlock
+X-GNOME-Autostart-enabled=true
