@@ -221,6 +221,7 @@ async fn main() -> Result<()> {
                             .status();
                             
                         let _ = std::process::Command::new("unzip")
+                            .arg("-j")
                             .arg("-o")
                             .arg("-q")
                             .arg(format!("{}/weights.zip", target_path))
@@ -229,6 +230,14 @@ async fn main() -> Result<()> {
                             .status();
                             
                         let _ = std::fs::remove_file(format!("{}/weights.zip", target_path));
+
+                        // Rename Insightface defaults back to the expected names if they exist
+                        if std::path::Path::new(&format!("{}/w600k_r50.onnx", target_path)).exists() {
+                            let _ = std::fs::rename(
+                                format!("{}/w600k_r50.onnx", target_path),
+                                format!("{}/arcface_w600k.onnx", target_path),
+                            );
+                        }
                     });
 
                     vec![DaemonResponse::ActionSuccess { msg: format!("Model {} download started in background.", name) }]
@@ -275,17 +284,15 @@ async fn main() -> Result<()> {
                         if devices.is_empty() { anyhow::bail!("No camera found"); }
                         
                         let mut sorted_devices = devices.clone();
-                        if let Some(ref path) = camera_path_override {
-                            // If path matches human_name OR index string, prioritize it
-                            sorted_devices.sort_by_key(|d| {
-                                if d.human_name() == *path || d.index().to_string() == *path { 0 } else { 1 }
-                            });
-                        } else {
-                            sorted_devices.sort_by_key(|a| {
-                                let name = a.human_name().to_lowercase();
-                                if name.contains("ir") || name.contains("infrared") { 0 } else { 1 }
-                            });
-                        }
+                        sorted_devices.sort_by_key(|d| {
+                            if let Some(ref path) = camera_path_override {
+                                if d.human_name() == *path || d.index().to_string() == *path {
+                                    return 0;
+                                }
+                            }
+                            let name = d.human_name().to_lowercase();
+                            if name.contains("ir") || name.contains("infrared") { 1 } else { 2 }
+                        });
 
                         let mut last_err = anyhow::anyhow!("No working camera found");
                         for dev in sorted_devices {
@@ -368,16 +375,15 @@ async fn main() -> Result<()> {
                         if devices.is_empty() { anyhow::bail!("No camera found"); }
                         
                         let mut sorted_devices = devices.clone();
-                        if let Some(ref path) = camera_path_override {
-                            sorted_devices.sort_by_key(|d| {
-                                if d.human_name() == *path || d.index().to_string() == *path { 0 } else { 1 }
-                            });
-                        } else {
-                            sorted_devices.sort_by_key(|a| {
-                                let name = a.human_name().to_lowercase();
-                                if name.contains("ir") || name.contains("infrared") { 0 } else { 1 }
-                            });
-                        }
+                        sorted_devices.sort_by_key(|d| {
+                            if let Some(ref path) = camera_path_override {
+                                if d.human_name() == *path || d.index().to_string() == *path {
+                                    return 0;
+                                }
+                            }
+                            let name = d.human_name().to_lowercase();
+                            if name.contains("ir") || name.contains("infrared") { 1 } else { 2 }
+                        });
 
                         for dev in sorted_devices {
                             let format_strategies = vec![RequestedFormatType::AbsoluteHighestResolution, RequestedFormatType::None];

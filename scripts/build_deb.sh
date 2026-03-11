@@ -73,9 +73,12 @@ echo "Configuring Linux Bonjour v2.1.0 Rust Core..."
 # 0. Download Core AI Models
 echo "Downloading core AI models (buffalo_l)..."
 mkdir -p \$MODELS_DIR
-if [ ! -f "\$MODELS_DIR/det_10g.onnx" ]; then
+if [ ! -f "\$MODELS_DIR/det_10g.onnx" ] || [ ! -f "\$MODELS_DIR/arcface_w600k.onnx" ]; then
     curl -L -s "https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l.zip" -o "/tmp/buffalo_l.zip"
-    unzip -o -q "/tmp/buffalo_l.zip" -d "\$MODELS_DIR/"
+    unzip -j -o -q "/tmp/buffalo_l.zip" -d "\$MODELS_DIR/"
+    if [ -f "\$MODELS_DIR/w600k_r50.onnx" ]; then
+        mv "\$MODELS_DIR/w600k_r50.onnx" "\$MODELS_DIR/arcface_w600k.onnx"
+    fi
     rm -f "/tmp/buffalo_l.zip"
     echo "AI Models downloaded and installed."
 else

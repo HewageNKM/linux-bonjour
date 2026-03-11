@@ -161,9 +161,20 @@ pub unsafe extern "C" fn pam_sm_authenticate(
     let user_cstr = CStr::from_ptr(user_ptr);
     let user = user_cstr.to_string_lossy().into_owned();
 
+    let mut bypass_consent = false;
+    let mut service_ptr: *const libc::c_void = ptr::null();
+    if pam_sys::get_item(&*pamh, pam_sys::PamItemType::SERVICE, &mut service_ptr) == PamReturnCode::SUCCESS && !service_ptr.is_null() {
+        let service_cstr = CStr::from_ptr(service_ptr as *const libc::c_char);
+        let service = service_cstr.to_string_lossy().into_owned().to_lowercase();
+        // Ignore consent on pre-login display managers and TTY login
+        if service.contains("gdm") || service.contains("sddm") || service.contains("lightdm") || service.contains("dm") || service == "login" {
+            bypass_consent = true;
+        }
+    }
+
     send_message(pamh, PAM_TEXT_INFO, "🐧 [Bonjour] Initializing face recognition...");
 
-    match perform_verify(pamh, &user, false) {
+    match perform_verify(pamh, &user, bypass_consent) {
         PamReturnCode::SUCCESS => PamReturnCode::SUCCESS,
         _ => PamReturnCode::AUTH_ERR,
     }

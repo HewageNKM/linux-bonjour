@@ -32,6 +32,11 @@ const statTpm = getEl('stat-tpm');
 const statAcceleration = getEl('stat-acceleration');
 const statCamera = getEl('stat-camera');
 
+// Security Elements
+const statSecurity = getEl('stat-security');
+const statLiveness = getEl('stat-liveness');
+const statRetries = getEl('stat-retries');
+
 // --- NOTIFICATION SYSTEM ---
 function showToast(message, type = 'success') {
     if (!toastContainer) return;
@@ -53,6 +58,37 @@ function showToast(message, type = 'success') {
         toast.style.animation = 'fadeOut 0.5s forwards';
         setTimeout(() => toast.remove(), 500);
     }, 4000);
+}
+
+// --- CUSTOM MODAL SYSTEM ---
+function customConfirm(title, message, isDanger = false) {
+    return new Promise((resolve) => {
+        const modal = getEl('confirm-modal');
+        const titleEl = getEl('confirm-title');
+        const msgEl = getEl('confirm-message');
+        const okBtn = getEl('confirm-ok-btn');
+        const cancelBtn = getEl('confirm-cancel-btn');
+
+        titleEl.innerText = title;
+        msgEl.innerText = message;
+        
+        // Reset styles and listeners
+        okBtn.className = isDanger ? 'primary-btn danger' : 'primary-btn';
+        
+        const cleanup = () => {
+            modal.classList.add('hidden');
+            okBtn.removeEventListener('click', onOk);
+            cancelBtn.removeEventListener('click', onCancel);
+        };
+
+        const onOk = () => { cleanup(); resolve(true); };
+        const onCancel = () => { cleanup(); resolve(false); };
+
+        okBtn.addEventListener('click', onOk);
+        cancelBtn.addEventListener('click', onCancel);
+
+        modal.classList.remove('hidden');
+    });
 }
 
 // --- NAVIGATION ---
@@ -122,6 +158,14 @@ livenessThresholdSlider.addEventListener('input', (e) => {
 });
 
 getEl('save-settings-btn').addEventListener('click', async () => {
+    const confirmed = await customConfirm(
+        "Save Configuration", 
+        "Are you sure you want to apply these system-wide biometric settings?", 
+        false
+    );
+    
+    if (!confirmed) return;
+
     try {
         const threshold = parseFloat(thresholdSlider.value) / 100;
         const liveness_threshold = parseFloat(livenessThresholdSlider.value) / 100;
@@ -183,7 +227,13 @@ async function loadIdentities() {
         identityList.querySelectorAll('.delete-btn').forEach(btn => {
             btn.addEventListener('click', async () => {
                 const user = btn.dataset.user;
-                if (confirm(`Are you sure you want to delete profile for '${user}'?`)) {
+                const confirmed = await customConfirm(
+                    "Delete Identity",
+                    `Are you sure you want to permanently delete the biometric profile for '${user}'? This action cannot be undone.`,
+                    true
+                );
+                
+                if (confirmed) {
                     try {
                         await invoke("delete_identity", { user });
                         showToast(`Profile for ${user} deleted`, 'info');
@@ -215,6 +265,29 @@ async function updateSystemStatus() {
             statTpm.className = `stat-value ${hw.tpm.includes('Active') ? 'success' : 'info'}`;
             statAcceleration.className = `stat-value ${hw.acceleration.includes('GPU') ? 'success' : 'info'}`;
             statCamera.className = `stat-value ${hw.camera.includes('IR') ? 'success' : 'info'}`;
+        }
+        
+        const cfg = await invoke("get_config");
+        if (cfg.status === "CONFIG" && statSecurity) {
+            let secLevel = "Standard";
+            if (cfg.threshold > 0.45) secLevel = "Strict";
+            if (cfg.threshold < 0.40) secLevel = "Lenient";
+            statSecurity.innerText = `${secLevel} (${cfg.threshold.toFixed(2)})`;
+            statSecurity.className = `stat-value ${cfg.threshold >= 0.45 ? 'success' : 'info'}`;
+            
+            if (cfg.smile_required) {
+                statLiveness.innerText = "Active (Smile)";
+                statLiveness.className = 'stat-value success';
+            } else if (cfg.liveness_enabled) {
+                statLiveness.innerText = "Passive (LBP)";
+                statLiveness.className = 'stat-value success';
+            } else {
+                statLiveness.innerText = "Disabled";
+                statLiveness.className = 'stat-value danger';
+            }
+            
+            statRetries.innerText = `${cfg.retry_limit} Attempts`;
+            statRetries.className = 'stat-value info';
         }
         
         const idents = await invoke("list_identities");
