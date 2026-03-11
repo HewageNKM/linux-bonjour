@@ -74,7 +74,7 @@ echo "Configuring Linux Bonjour v2.1.0 Rust Core..."
 echo "Downloading core AI models (buffalo_l)..."
 mkdir -p \$MODELS_DIR
 if [ ! -f "\$MODELS_DIR/det_10g.onnx" ]; then
-    curl -L -s "https://github.com/HewageNKM/linux-hello/releases/download/models/buffalo_l.zip" -o "/tmp/buffalo_l.zip"
+    curl -L -s "https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l.zip" -o "/tmp/buffalo_l.zip"
     unzip -o -q "/tmp/buffalo_l.zip" -d "\$MODELS_DIR/"
     rm -f "/tmp/buffalo_l.zip"
     echo "AI Models downloaded and installed."

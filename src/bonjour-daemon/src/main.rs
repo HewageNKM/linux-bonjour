@@ -200,7 +200,9 @@ async fn main() -> Result<()> {
                 },
                 DaemonRequest::DownloadModel { name } => {
                     let model_url = match name.as_str() {
-                        "buffalo_l" => "https://github.com/HewageNKM/linux-hello/releases/download/models/buffalo_l.zip",
+                        "buffalo_l" => "https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l.zip",
+                        "buffalo_s" => "https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_s.zip",
+                        "antelope" => "https://github.com/deepinsight/insightface/releases/download/v0.7/antelopev2.zip",
                         _ => {
                             return vec![DaemonResponse::Failure { reason: format!("Unknown model: {}", name) }];
                         }
@@ -217,6 +219,16 @@ async fn main() -> Result<()> {
                             .arg("-o")
                             .arg(format!("{}/weights.zip", target_path))
                             .status();
+                            
+                        let _ = std::process::Command::new("unzip")
+                            .arg("-o")
+                            .arg("-q")
+                            .arg(format!("{}/weights.zip", target_path))
+                            .arg("-d")
+                            .arg(&target_path)
+                            .status();
+                            
+                        let _ = std::fs::remove_file(format!("{}/weights.zip", target_path));
                     });
 
                     vec![DaemonResponse::ActionSuccess { msg: format!("Model {} download started in background.", name) }]
