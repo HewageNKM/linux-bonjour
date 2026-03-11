@@ -12,6 +12,7 @@ import io
 from camera import IRCamera
 from crypto_utils import encrypt_data, decrypt_data
 import logging
+import onnxruntime as ort
 from datetime import datetime
 import threading
 from threading import Lock, Event
@@ -45,7 +46,12 @@ def load_config():
             # Strip _int8 for directory naming consistency (Phase 26)
             model_base = model_name.replace("_int8", "")
             
-            if not conf['users_dir'].startswith('/'):
+            # Phase 34: Standardize global data to /var/lib
+            VAR_DATA_DIR = "/var/lib/linux-bonjour"
+            
+            if not conf.get('users_dir') or conf['users_dir'] == "config/users":
+                conf['users_dir'] = os.path.join(VAR_DATA_DIR, "users", model_base)
+            elif not conf['users_dir'].startswith('/'):
                 conf['users_dir'] = os.path.join(BASE_DIR, conf['users_dir'], model_base)
             else:
                 conf['users_dir'] = os.path.join(conf['users_dir'], model_base)
@@ -56,7 +62,7 @@ def load_config():
         return {
             "threshold": 0.45,
             "model_name": "buffalo_l",
-            "users_dir": os.path.join(BASE_DIR, "config/users/buffalo_l"),
+            "users_dir": "/var/lib/linux-bonjour/users/buffalo_l",
             "socket_path": "/run/linux-bonjour.sock",
             "liveness_required": False,
             "ear_threshold": 0.20
@@ -224,11 +230,14 @@ class FaceDaemon:
         self.liveness = LBPLiveness()
         self.users_dir = "" # Will be set in reload_config
         self.reload_config()
-        # Startup Directory Verification
-        users_dir = self.config.get('users_dir', 'config/users')
+        # Startup Directory Verification (Phase 34: Global data in /var/lib)
+        users_dir = self.config.get('users_dir', '/var/lib/linux-bonjour/users/buffalo_l')
         if not os.path.exists(str(users_dir)):
-            os.makedirs(str(users_dir), mode=0o777, exist_ok=True)
-            os.chmod(str(users_dir), 0o777)
+            try:
+                os.makedirs(str(users_dir), mode=0o777, exist_ok=True)
+                os.chmod(str(users_dir), 0o777)
+            except Exception as e:
+                print(f"WARNING: Could not create global users directory {users_dir}: {e}")
 
         # Start Presence Detector
         self.presence_detector = PresenceDetector(self)
@@ -254,6 +263,11 @@ class FaceDaemon:
             'TensorrtExecutionProvider', 
             'CUDAExecutionProvider',
         ]
+        
+        # Phase 34: Stop provider hunting (log spam)
+        available = ort.get_available_providers()
+        valid_providers = [p for p in accelerated_providers if p in available]
+        
         print(f"Initializing Optimized AI Engine: {model_name}...")
         
         # Step 1: Attempt to find optimized INT8 models (Phase 14)
@@ -262,24 +276,23 @@ class FaceDaemon:
         if os.path.exists(int8_model_path):
             print(f"🚀 Quantized INT8 model detected for {model_name}. Prioritizing OpenVINO.")
             model_name = f"{model_name}_int8"
-        # Try accelerated providers
-        for provider in accelerated_providers:
+
+        # Try accelerated providers that are actually available
+        for provider in valid_providers:
             try:
-                print(f"Trying hardware acceleration: {provider}...")
+                print(f"Attempting hardware acceleration: {provider}...")
                 self.app = FaceAnalysis(name=model_name, root=models_dir, providers=[provider])
                 self.app.prepare(ctx_id=0, det_size=(320, 320))
                 
-                # Verify that the provider was actually assigned
+                # Double check success
                 if self.app is not None and hasattr(self.app, 'models') and 'detection' in self.app.models:
                     model = self.app.models['detection']
-                    if hasattr(model, 'session'):
-                        assigned_providers = model.session.get_providers()
-                        if provider in assigned_providers:
-                            print(f"✅ Success! Accelerated by {provider}")
-                            self.app_ready.set()
-                            return
+                    if hasattr(model, 'session') and provider in model.session.get_providers():
+                        print(f"✅ Success! Accelerated by {provider}")
+                        self.app_ready.set()
+                        return
             except Exception as e:
-                print(f"Provider {provider} failed: {e}")
+                print(f"Note: {provider} initialization skipped/failed: {e}")
 
         # Fallback to CPU
         print("Falling back to CPUExecutionProvider...")
@@ -623,6 +636,8 @@ class FaceDaemon:
 
         targets = self.get_targets(username)
         if not targets:
+            try: conn.sendall(b"INFO: No Face Data!")
+            except: pass
             print("No Face Data!")
             # Only log if NOT throttled (throttling already logs its own message)
             if username not in self.failed_attempts or \
@@ -631,6 +646,9 @@ class FaceDaemon:
                 log_event(f"AUTH FAILED: No face data found for '{username}'.", 
                           enabled=self.config.get('logging_enabled', True))
             return "FAILURE"
+
+        try: conn.sendall(f"INFO: 🛡️ Linux Bonjour: Scanning for {username}...".encode())
+        except: pass
 
         # 1. Capture & Verify Loop (Retry for search_duration seconds)
         start_verify = time.time()
@@ -934,6 +952,20 @@ class FaceDaemon:
                     conf = load_config()
                     val = str(conf.get(key, ""))
                     conn.sendall(val.encode())
+                elif raw_request.startswith("HAS_DATA "):
+                    username = raw_request.split(" ", 1)[1]
+                    # Reload config on each check for live changes
+                    new_config = load_config()
+                    if not new_config.get("system_enabled", True):
+                        conn.sendall(b"false")
+                        continue
+                        
+                    targets = self.get_targets(username)
+                    log_event(f"DEBUG: HAS_DATA check for {username} -> {bool(targets)}")
+                    if targets:
+                        conn.sendall(b"true")
+                    else:
+                        conn.sendall(b"false")
             except Exception as e:
                 print(f"Error handling request: {e}")
             finally:

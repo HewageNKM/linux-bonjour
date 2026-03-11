@@ -16,6 +16,7 @@ NoNewPrivileges=no
 ProtectSystem=full
 ProtectHome=read-only
 PrivateTmp=yes
+ReadWritePaths=/var/lib/linux-bonjour
 CapabilityBoundingSet=CAP_SETUID CAP_SETGID CAP_DAC_OVERRIDE
 DeviceAllow=/dev/video0 rw
 DeviceAllow=/dev/video1 rw

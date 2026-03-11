@@ -79,15 +79,19 @@ if [ -f "\$BASE_DIR/org.linuxbonjour.conf" ]; then
     systemctl reload dbus
 fi
 
-# 2.1 Setup Logging Infrastructure (Fixes Namespace 226 error)
+# 2.1 Setup Persistent Infrastructure (Fixes Namespace 226 & Read-only errors)
 mkdir -p /var/log/linux-bonjour
 chown root:root /var/log/linux-bonjour
 chmod 755 /var/log/linux-bonjour
 
+mkdir -p /var/lib/linux-bonjour/users
+chown root:root /var/lib/linux-bonjour
+chmod 777 /var/lib/linux-bonjour/users
+
 # 3. Initialize AI Models
 echo "Initializing default AI models (buffalo_l)..."
-mkdir -p "\$MODELS_DIR"
-chmod 777 "\$MODELS_DIR"
+mkdir -p "$MODELS_DIR"
+chmod 777 "$MODELS_DIR"
 "\$VENV/bin/python" "\$BASE_DIR/scripts/init_models.py" "\$MODELS_DIR" buffalo_l
 
 # 4. Camera Permission Hardening (v1.1.9)

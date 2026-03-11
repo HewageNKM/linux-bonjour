@@ -134,6 +134,25 @@ unsafe fn is_system_enabled() -> bool {
     }
 }
 
+unsafe fn is_user_enrolled(username: &str) -> bool {
+    let mut stream = match UnixStream::connect(SOCKET_PATH) {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(1)));
+    if stream.write_all(format!("HAS_DATA {}", username).as_bytes()).is_err() {
+        return false;
+    }
+    let mut buffer = [0; 16];
+    match stream.read(&mut buffer) {
+        Ok(n) if n > 0 => {
+            let val = String::from_utf8_lossy(&buffer[..n]).to_lowercase();
+            val.trim() == "true"
+        }
+        _ => false,
+    }
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn pam_sm_authenticate(
     pamh: *const PamHandle,
@@ -156,7 +175,7 @@ pub unsafe extern "C" fn pam_sm_authenticate(
     
     let username = CStr::from_ptr(user_ptr).to_string_lossy();
     
-    // 1.1 Get service name
+    // 1.2 Get service name
     let mut service_ptr: *const libc::c_void = ptr::null();
     let service_res = pam_sys::get_item(&*pamh, pam_sys::PamItemType::SERVICE, &mut service_ptr);
     
@@ -165,15 +184,20 @@ pub unsafe extern "C" fn pam_sm_authenticate(
     } else {
         "unknown".to_string()
     };
+    
+    // 1.3 Stealth Enrollment Check (Immediate fallback if no data)
+    if !is_user_enrolled(&username) {
+        // Only print "No Face Data!" for non-login services to keep login screen clean
+        if !service.contains("gdm") && !service.contains("login") && !service.contains("sddm") && !service.contains("lightdm") {
+            send_message(pamh, PAM_TEXT_INFO, "No Face Data!", false);
+        }
+        return PamReturnCode::AUTH_ERR as libc::c_int;
+    }
 
     let mut retries = 0;
     let max_retries = get_max_retries();
 
     loop {
-        // Provide visual feedback
-        send_message(pamh, PAM_TEXT_INFO, &format!("🛡️ Linux Bonjour: Scanning for {}...{}", 
-            username, if retries > 0 { format!(" (Attempt {})", retries + 1) } else { "".to_string() }), false);
-
         // 2. Connect to Daemon
         let mut stream = match UnixStream::connect(SOCKET_PATH) {
             Ok(s) => s,
@@ -214,12 +238,9 @@ pub unsafe extern "C" fn pam_sm_authenticate(
                                 break;
                             }
                         }
-                        // If we got a final status in one of the lines, return was already handled.
-                        // If it was just an INFO line, it continues the inner loop.
-                        // We need to check if the last line we processed was a terminal one.
+                        // Check if we got a terminal status
                         let last_line = response.lines().last().unwrap_or_default().trim();
-                        if last_line == "FAILURE" { break; }
-                        if last_line == "SUCCESS" || last_line == "DENIED" { break; }
+                        if last_line == "FAILURE" || last_line == "SUCCESS" || last_line == "DENIED" { break; }
                     }
                     _ => break, // Connection closed or error
                 }
@@ -234,16 +255,10 @@ pub unsafe extern "C" fn pam_sm_authenticate(
 
         // 6. Ask to Try Again - Improved Prompt
         if !is_pam_logging_enabled() || !prompt_retry(pamh, "\n❌ Face not recognized. Try again? [Y/n]: ") {
-            if !is_pam_logging_enabled() {
-                // No message needed, just exit loop
-            } else {
-                send_message(pamh, PAM_TEXT_INFO, "Skipping... falling back to password.", false);
-            }
             break;
         }
     }
 
-    send_message(pamh, PAM_ERROR_MSG, "❌ Linux Bonjour: Authentication Failed.", false);
     PamReturnCode::AUTH_ERR as libc::c_int
 }
 
