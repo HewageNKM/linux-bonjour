@@ -90,8 +90,8 @@ chmod 777 /var/lib/linux-bonjour/users
 
 # 3. Initialize AI Models
 echo "Initializing default AI models (buffalo_l)..."
-mkdir -p "$MODELS_DIR"
-chmod 777 "$MODELS_DIR"
+mkdir -p "\$MODELS_DIR"
+chmod 777 "\$MODELS_DIR"
 "\$VENV/bin/python" "\$BASE_DIR/scripts/init_models.py" "\$MODELS_DIR" buffalo_l
 
 # 4. Camera Permission Hardening (v1.1.9)

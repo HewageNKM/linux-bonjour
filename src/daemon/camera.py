@@ -10,15 +10,15 @@ class Camera:
 
     def __init__(self, config=None):
         self.config = config or {}
+        self.cap = None
         if Camera._cached_index is not None:
             self.index = Camera._cached_index
             self.camera_type = Camera._cached_type
         else:
-            self.index, self.camera_type = self._find_camera()
+            self.index, self.camera_type, self.cap = self._find_camera()
             Camera._cached_index = self.index
             Camera._cached_type = self.camera_type
             
-        self.cap = None
         self.stopped = False
         self.thread = None
         # Use a Queue with maxsize=1 to ensure we always have the freshest frame
@@ -29,7 +29,7 @@ class Camera:
         """Discovers the best camera, prioritizing IR sensors."""
         manual_index = self.config.get("camera_index")
         if manual_index is not None and manual_index != -1:
-            return manual_index, self.config.get("camera_type", "AUTO")
+            return manual_index, self.config.get("camera_type", "AUTO"), None
 
         # Step 1: Probe for hardware-labeled IR cameras in /sys
         ir_candidates = []
@@ -51,38 +51,30 @@ class Camera:
         except Exception as e:
             print(f"Camera Probe Error: {e}")
 
-        # Step 2: Try IR candidates first
-        for i in ir_candidates:
-            if self._test_device(i):
-                print(f"✅ IR Camera Found: /dev/video{i}")
-                return i, "IR"
+        # Step 2: Try candidates and keep the first successful handle
+        for index in ir_candidates + rgb_candidates + [0, 1, 2, 4, 6]:
+            cap = self._open_device(index)
+            if cap:
+                ctype = "IR" if index in ir_candidates else "RGB"
+                print(f"✅ Camera Found: /dev/video{index} ({ctype})")
+                return index, ctype, cap
 
-        # Step 3: Fallback to RGB candidates
-        for i in rgb_candidates:
-            if self._test_device(i):
-                print(f"ℹ️ RGB Camera Fallback: /dev/video{i}")
-                return i, "RGB"
+        return 0, "UNKNOWN", None
 
-        # Step 4: Final hardcoded fallback
-        for i in [0, 1, 2, 4, 6]:
-            if self._test_device(i):
-                return i, "AUTO"
-
-        return 0, "UNKNOWN"
-
-    def _test_device(self, index):
-        """Verifies if a camera device can actually provide frames."""
+    def _open_device(self, index):
+        """Attempt to open a camera device and verify it works."""
         try:
             if not os.path.exists(f"/dev/video{index}"):
-                return False
+                return None
             cap = cv2.VideoCapture(index)
             if cap.isOpened():
                 ret, _ = cap.read()
+                if ret:
+                    return cap
                 cap.release()
-                return ret
         except:
             pass
-        return False
+        return None
 
     def start(self):
         """Starts the background thread for continuous frame polling."""
@@ -97,14 +89,17 @@ class Camera:
         """Internal thread loop (Producer) to keep the latest frame in the queue."""
         while not self.stopped:
             if self.cap is None or not self.cap.isOpened():
+                # Redundant check because we might have closed it in release()
                 self.cap = cv2.VideoCapture(self.index)
-                if self.cap.isOpened():
-                    self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
-                    self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
-                    self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
-                else:
-                    time.sleep(1.0)
-                    continue
+                
+            if self.cap.isOpened():
+                # Apply settings only once or when re-opened
+                self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
+                self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
+                self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+            else:
+                time.sleep(1.0)
+                continue
 
             ret, frame = self.cap.read()
             if ret:

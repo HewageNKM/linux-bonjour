@@ -623,10 +623,6 @@ class FaceDaemon:
                 self.auth_approved = True
                 self.auth_event.set()
 
-        # 0.2 Start Feedback
-        if self.config.get("notifications_enabled", True):
-            self.dbus.emit_scanning(username)
-
         # 0.1 Check Denial Grace Period (Prevent prompt looping on Deny)
         if username in self.last_denial:
             deny_time, deny_svc = self.last_denial[username]
@@ -647,6 +643,9 @@ class FaceDaemon:
                           enabled=self.config.get('logging_enabled', True))
             return "FAILURE"
 
+        # 0.2 Start Feedback (ONLY if we have data)
+        if self.config.get("notifications_enabled", True):
+            self.dbus.emit_scanning(username)
         try: conn.sendall(f"INFO: 🛡️ Linux Bonjour: Scanning for {username}...".encode())
         except: pass
 
