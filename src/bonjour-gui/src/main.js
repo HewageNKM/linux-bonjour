@@ -13,6 +13,8 @@ const identityList = getEl('identity-list');
 const journalOutput = getEl('journal-output');
 const thresholdSlider = getEl('threshold-slider');
 const thresholdValue = getEl('threshold-value');
+const livenessThresholdSlider = getEl('liveness-threshold-slider');
+const livenessThresholdValue = getEl('liveness-threshold-value');
 const settingSmile = getEl('setting-smile');
 const settingAutocapture = getEl('setting-autocapture');
 const settingLiveness = getEl('setting-liveness');
@@ -67,18 +69,62 @@ navItems.forEach(item => {
         if (viewName === 'enrollment') loadIdentities();
         if (viewName === 'logs') loadLogs();
         if (viewName === 'dashboard') updateSystemStatus();
+        if (viewName === 'settings') syncSettings();
     });
 });
 
 // --- SETTINGS LOGIC ---
+async function syncSettings() {
+    try {
+        const cfg = await invoke("get_config");
+        if (cfg.status === "CONFIG") {
+            thresholdSlider.value = cfg.threshold * 100;
+            thresholdValue.innerText = cfg.threshold.toFixed(2);
+            settingSmile.checked = cfg.smile_required;
+            settingAutocapture.checked = cfg.autocapture;
+            settingLiveness.checked = cfg.liveness_enabled;
+            livenessThresholdSlider.value = cfg.liveness_threshold * 100;
+            livenessThresholdValue.innerText = cfg.liveness_threshold.toFixed(2);
+            settingAskPermission.checked = cfg.ask_permission;
+            settingRetryLimit.value = cfg.retry_limit;
+            
+            // Populate Camera List
+            const cameras = await invoke("get_camera_list");
+            if (cameras.status === "CAMERA_LIST") {
+                const current = cfg.camera_path || 'auto';
+                settingCamera.innerHTML = '<option value="auto">Auto-Detect (Recommended)</option>';
+                cameras.devices.forEach(cam => {
+                    const opt = document.createElement('option');
+                    opt.value = cam.path;
+                    opt.innerText = `${cam.name} [${cam.path}]`;
+                    settingCamera.appendChild(opt);
+                });
+                settingCamera.value = current;
+            }
+
+            // Sync Global State
+            const status = await invoke("get_system_status");
+            settingSystemEnabled.checked = status.enabled;
+        }
+    } catch (err) {
+        console.error("Failed to sync settings:", err);
+    }
+}
+
 thresholdSlider.addEventListener('input', (e) => {
     const val = (e.target.value / 100).toFixed(2);
     thresholdValue.innerText = val;
 });
 
+livenessThresholdSlider.addEventListener('input', (e) => {
+    const val = (e.target.value / 100).toFixed(2);
+    livenessThresholdValue.innerText = val;
+});
+
 getEl('save-settings-btn').addEventListener('click', async () => {
     try {
         const threshold = parseFloat(thresholdSlider.value) / 100;
+        const liveness_threshold = parseFloat(livenessThresholdSlider.value) / 100;
         const smile_required = settingSmile.checked;
         const autocapture = settingAutocapture.checked;
         const liveness_enabled = settingLiveness.checked;
@@ -87,14 +133,15 @@ getEl('save-settings-btn').addEventListener('click', async () => {
         const camera_path = settingCamera.value === 'auto' ? null : settingCamera.value;
         const model = settingModel.value;
 
-        // Sync Global State if Changed
-        await invoke("set_enabled", { enabled: settingSystemEnabled.checked });
+        // Sync Global State
+        await invoke("toggle_system", { enabled: settingSystemEnabled.checked });
 
         await invoke("update_config", { 
             threshold, 
             smileRequired: smile_required,
             autocapture: autocapture,
             livenessEnabled: liveness_enabled,
+            livenessThreshold: liveness_threshold,
             askPermission: ask_permission,
             retryLimit: retry_limit,
             cameraPath: camera_path
@@ -133,7 +180,6 @@ async function loadIdentities() {
             identityList.appendChild(el);
         });
 
-        // Add delete listeners
         identityList.querySelectorAll('.delete-btn').forEach(btn => {
             btn.addEventListener('click', async () => {
                 const user = btn.dataset.user;
@@ -156,42 +202,24 @@ async function loadIdentities() {
 // --- SYSTEM & HARDWARE STATUS ---
 async function updateSystemStatus() {
     try {
-        // Core Status
         const status = await invoke("get_system_status");
         statStatus.innerText = status.enabled ? "Active" : "Disabled";
         statStatus.className = `stat-value ${status.enabled ? 'success' : 'danger'}`;
         
-        // Hardware Status
         const hw = await invoke("get_hardware_status");
         if (hw.status === "HARDWARE_STATUS") {
             statTpm.innerText = hw.tpm;
             statAcceleration.innerText = hw.acceleration;
             statCamera.innerText = hw.camera;
             
-            // Set colors based on status
             statTpm.className = `stat-value ${hw.tpm.includes('Active') ? 'success' : 'info'}`;
             statAcceleration.className = `stat-value ${hw.acceleration.includes('GPU') ? 'success' : 'info'}`;
             statCamera.className = `stat-value ${hw.camera.includes('IR') ? 'success' : 'info'}`;
         }
         
-        // Identity Count (Sync with dashboard)
         const idents = await invoke("list_identities");
         if (idents.status === "IDENTITY_LIST") {
             statIdentities.innerText = idents.users.length;
-        }
-        
-        // Refresh Camera List
-        const cameras = await invoke("run_biometric_command", { cmd: "GET_CAMERA_LIST" });
-        if (cameras.status === "CAMERA_LIST") {
-            const current = settingCamera.value;
-            settingCamera.innerHTML = '<option value="auto">Auto-Detect (Recommended)</option>';
-            cameras.devices.forEach(cam => {
-                const opt = document.createElement('option');
-                opt.value = cam;
-                opt.innerText = cam;
-                settingCamera.appendChild(opt);
-            });
-            if (current) settingCamera.value = current;
         }
     } catch (error) {
         console.warn("Status update cycle failed:", error);
@@ -248,9 +276,10 @@ listen("biometric-status", (event) => {
 
 // --- INITIALIZATION ---
 (async () => {
+    await syncSettings();
     await updateSystemStatus();
     await loadIdentities();
     
     // Background polling for status
-    setInterval(updateSystemStatus, 10000);
+    setInterval(updateSystemStatus, 15000);
 })();

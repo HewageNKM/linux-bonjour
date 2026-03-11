@@ -1,18 +1,10 @@
 {
-    "socket_path": "/run/linux-bonjour.sock",
-    "model_name": "buffalo_l",
     "threshold": 0.45,
-    "users_dir": "config/users",
-    "cooldown_time": 60,
-    "max_failures": 3,
-    "camera_index": null,
-    "camera_type": "AUTO",
-    "global_unlock": false,
-    "pam_logging": true,
-    "search_duration": 3.5,
-    "logging_enabled": true,
-    "system_enabled": true,
-    "auth_approval": true,
-    "notifications_enabled": true,
-    "show_scanner_overlay": true
+    "smile_required": false,
+    "autocapture": false,
+    "liveness_enabled": true,
+    "liveness_threshold": 0.50,
+    "ask_permission": false,
+    "retry_limit": 3,
+    "camera_path": null
 }

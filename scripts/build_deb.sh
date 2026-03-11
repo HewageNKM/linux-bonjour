@@ -51,12 +51,12 @@ mkdir -p pkg/lib/systemd/system
 # Generate DEB Metadata
 cat <<EOF > pkg/DEBIAN/control
 Package: linux-bonjour
-Version: 2.1.0
+Version: 2.1.3
 Section: utils
 Priority: optional
 Architecture: amd64
 Maintainer: HewageNKM <[EMAIL_ADDRESS]>
-Depends: libpam0g, libxcb-cursor0, libgl1, libglib2.0-0, libnotify-bin, tpm2-tools, libtss2-dev, pkg-config, libdbus-1-dev, libwebkit2gtk-4.1-0
+Depends: libpam0g, libxcb-cursor0, libgl1, libglib2.0-0, libnotify-bin, tpm2-tools, libtss2-dev, pkg-config, libdbus-1-dev, libwebkit2gtk-4.1-0, v4l-utils, curl, unzip
 Description:
   Linux Bonjour - Professional biometric face-recognition authentication.
   A secure, light-weight face-recognition authentication system for Linux.
@@ -69,6 +69,18 @@ set -e
 BASE_DIR="/usr/share/linux-bonjour"
 MODELS_DIR="\$BASE_DIR/models"
 echo "Configuring Linux Bonjour v2.1.0 Rust Core..."
+
+# 0. Download Core AI Models
+echo "Downloading core AI models (buffalo_l)..."
+mkdir -p \$MODELS_DIR
+if [ ! -f "\$MODELS_DIR/det_10g.onnx" ]; then
+    curl -L -s "https://github.com/HewageNKM/linux-hello/releases/download/models/buffalo_l.zip" -o "/tmp/buffalo_l.zip"
+    unzip -o -q "/tmp/buffalo_l.zip" -d "\$MODELS_DIR/"
+    rm -f "/tmp/buffalo_l.zip"
+    echo "AI Models downloaded and installed."
+else
+    echo "AI Models already exist. Skipping download."
+fi
 
 # 1. Setup Persistent Infrastructure
 echo "Configuring system paths..."
@@ -111,7 +123,64 @@ systemctl daemon-reload
 systemctl enable linux-bonjour
 systemctl restart linux-bonjour
 
-# 8. Automatic PAM Activation
+# 8. Hardware Auto-Configuration (TPM & Camera)
+echo "Detecting hardware for optimal performance..."
+
+# 8.1 TPM Permissions
+if [ -c "/dev/tpmrm0" ]; then
+    chmod 666 /dev/tpmrm0
+    echo "TPM Device permissions relaxed (0666)."
+fi
+groupadd -f tss
+if [ -n "$SUDO_USER" ]; then
+    usermod -a -G tss "$SUDO_USER"
+    echo "Added $SUDO_USER to 'tss' group."
+fi
+
+# 8.2 Camera Auto-Selection
+mkdir -p /etc/linux-bonjour
+CONFIG_FILE="/etc/linux-bonjour/config.json"
+
+if [ ! -f "\$CONFIG_FILE" ]; then
+    echo "🔍 Probing for best available camera..."
+    # 1. Look for IR/Infrared devices first
+    BEST_CAM=\$(v4l2-ctl --list-devices 2>/dev/null | awk '/IR|Infrared/ {getline; print \$1; exit}' | tr -d '[:space:]')
+    
+    # 2. If no IR, look for high-index Video Capture devices (usually external)
+    if [ -z "\$BEST_CAM" ]; then
+        BEST_CAM=\$(v4l2-ctl --list-devices 2>/dev/null | grep -o "/dev/video[0-9]*" | head -n 1)
+    fi
+
+    if [ -n "\$BEST_CAM" ]; then
+        echo "✅ Pre-selected Camera: \$BEST_CAM"
+        cat <<EOC > "\$CONFIG_FILE"
+{
+  "threshold": 0.38,
+  "smile_required": false,
+  "autocapture": false,
+  "liveness_enabled": true,
+  "ask_permission": false,
+  "retry_limit": 3,
+  "camera_path": "\$BEST_CAM"
+}
+EOC
+    else
+        echo "⚠️ No camera detected. Creating default config."
+        cat <<EOC > "\$CONFIG_FILE"
+{
+  "threshold": 0.38,
+  "smile_required": false,
+  "autocapture": false,
+  "liveness_enabled": true,
+  "ask_permission": false,
+  "retry_limit": 3,
+  "camera_path": null
+}
+EOC
+    fi
+fi
+
+# 9. Automatic PAM Activation
 echo "Activating face recognition system-wide..."
 bash \$BASE_DIR/scripts/setup_pam.sh --enable-all
 
@@ -153,9 +222,9 @@ cp src/bonjour-gui/src-tauri/icons/icon.png pkg/usr/share/pixmaps/linux-bonjour.
 cp -r scripts pkg/usr/share/linux-bonjour/
 cp src/bonjour-gui/src-tauri/icons/icon.png pkg/usr/share/linux-bonjour/logo.png
 
-# 3. Model staging (Removed pre-downloading to reduce .deb size)
-# Models will be downloaded during postinst on the target system.
+# 3. Model staging
 mkdir -p "$PKG_ROOT/usr/share/linux-bonjour/models"
+cp -r src/bonjour-daemon/models/* "$PKG_ROOT/usr/share/linux-bonjour/models/" 2>/dev/null || true
 
 # Create the wrapper script
 cat <<EOF > pkg/usr/bin/linux-bonjour

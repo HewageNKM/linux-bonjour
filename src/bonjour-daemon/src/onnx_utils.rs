@@ -37,9 +37,15 @@ impl InferenceEngine {
         })
     }
 
+    pub fn has_gpu(&self) -> bool {
+        // ort handles execution providers. If CUDA/TensorRT is available and 
+        // linked correctly, it will be used. Returning false won't block GPU usage
+        // but it will affect the Hardware Dashboard labels.
+        false
+    }
+
     pub fn detect_faces(&mut self, img: &DynamicImage) -> Result<Vec<FaceDetection>> {
         let (orig_w, orig_h) = img.dimensions();
-        // Pre-process image for SCRFD (det_10g.onnx)
         let target_size = 640;
         let resized = img.resize_exact(target_size, target_size, image::imageops::FilterType::Triangle);
         
@@ -61,7 +67,6 @@ impl InferenceEngine {
         let mut all_detections = Vec::new();
         let score_threshold = 0.5;
 
-        // Scale factors to map SCRFD 640x640 space back to original image
         let scale_x = orig_w as f32 / target_size as f32;
         let scale_y = orig_h as f32 / target_size as f32;
 

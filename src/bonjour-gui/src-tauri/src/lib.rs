@@ -10,7 +10,7 @@ const SOCKET_PATH: &str = "/run/linux-bonjour/daemon.sock";
 #[tauri::command]
 async fn run_biometric_command(app: AppHandle, cmd: String, user: String) -> Result<(), String> {
     let request = match cmd.as_str() {
-        "VERIFY" => DaemonRequest::Verify { user },
+        "VERIFY" => DaemonRequest::Verify { user, bypass_consent: false },
         "ENROLL" => DaemonRequest::Enroll { user },
         _ => return Err("Invalid command".to_string()),
     };
@@ -103,9 +103,27 @@ async fn delete_identity(user: String) -> Result<DaemonResponse, String> {
 }
 
 #[tauri::command]
-async fn update_config(threshold: f32, smile_required: bool, autocapture: bool, liveness_enabled: bool) -> Result<DaemonResponse, String> {
+async fn update_config(
+    threshold: f32, 
+    smile_required: bool, 
+    autocapture: bool, 
+    liveness_enabled: bool,
+    liveness_threshold: f32,
+    ask_permission: bool,
+    retry_limit: u32,
+    camera_path: Option<String>
+) -> Result<DaemonResponse, String> {
     let mut stream = UnixStream::connect(SOCKET_PATH).await.map_err(|e| format!("Daemon connection failed: {}", e))?;
-    let request = DaemonRequest::UpdateConfig { threshold, smile_required, autocapture, liveness_enabled };
+    let request = DaemonRequest::UpdateConfig { 
+        threshold, 
+        smile_required, 
+        autocapture, 
+        liveness_enabled,
+        liveness_threshold,
+        ask_permission,
+        retry_limit,
+        camera_path 
+    };
     let req_json = serde_json::to_string(&request).map_err(|e| e.to_string())?;
     stream.write_all(format!("{}\n", req_json).as_bytes()).await.map_err(|e| e.to_string())?;
     
@@ -115,6 +133,21 @@ async fn update_config(threshold: f32, smile_required: bool, autocapture: bool, 
         return Ok(resp);
     }
     Err("Failed to update config".to_string())
+}
+
+#[tauri::command]
+async fn get_config() -> Result<DaemonResponse, String> {
+    let mut stream = UnixStream::connect(SOCKET_PATH).await.map_err(|e| format!("Daemon connection failed: {}", e))?;
+    let request = DaemonRequest::GetConfig;
+    let req_json = serde_json::to_string(&request).map_err(|e| e.to_string())?;
+    stream.write_all(format!("{}\n", req_json).as_bytes()).await.map_err(|e| e.to_string())?;
+    
+    let mut reader = BufReader::new(stream).lines();
+    if let Ok(Some(line)) = reader.next_line().await {
+        let resp = serde_json::from_str::<DaemonResponse>(&line).map_err(|e| e.to_string())?;
+        return Ok(resp);
+    }
+    Err("Failed to get config".to_string())
 }
 
 #[tauri::command]
@@ -130,6 +163,21 @@ async fn get_hardware_status() -> Result<DaemonResponse, String> {
         return Ok(resp);
     }
     Err("Failed to get hardware status".to_string())
+}
+
+#[tauri::command]
+async fn get_camera_list() -> Result<DaemonResponse, String> {
+    let mut stream = UnixStream::connect(SOCKET_PATH).await.map_err(|e| format!("Daemon connection failed: {}", e))?;
+    let request = DaemonRequest::GetCameraList;
+    let req_json = serde_json::to_string(&request).map_err(|e| e.to_string())?;
+    stream.write_all(format!("{}\n", req_json).as_bytes()).await.map_err(|e| e.to_string())?;
+    
+    let mut reader = BufReader::new(stream).lines();
+    if let Ok(Some(line)) = reader.next_line().await {
+        let resp = serde_json::from_str::<DaemonResponse>(&line).map_err(|e| e.to_string())?;
+        return Ok(resp);
+    }
+    Err("Failed to get camera list".to_string())
 }
 
 #[tauri::command]
@@ -158,6 +206,8 @@ pub fn run() {
             list_identities,
             delete_identity,
             update_config,
+            get_config,
+            get_camera_list,
             get_journal_logs,
             get_hardware_status,
             download_model
