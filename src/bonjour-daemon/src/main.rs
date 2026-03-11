@@ -24,6 +24,7 @@ struct DaemonConfig {
     liveness_enabled: bool,
     ask_permission: bool,
     retry_limit: u32,
+    camera_path: Option<String>,
 }
 
 #[tokio::main]
@@ -58,6 +59,7 @@ async fn main() -> Result<()> {
         liveness_enabled: true,
         ask_permission: false,
         retry_limit: 3,
+        camera_path: None,
     }));
     
     // Detect Acceleration
@@ -114,7 +116,7 @@ async fn main() -> Result<()> {
                         Err(e) => vec![DaemonResponse::Failure { reason: e.to_string() }],
                     }
                 },
-                DaemonRequest::UpdateConfig { threshold, smile_required, autocapture, liveness_enabled, ask_permission, retry_limit } => {
+                DaemonRequest::UpdateConfig { threshold, smile_required, autocapture, liveness_enabled, ask_permission, retry_limit, camera_path } => {
                     let mut cfg = config.lock().await;
                     cfg.threshold = threshold;
                     cfg.smile_required = smile_required;
@@ -122,6 +124,7 @@ async fn main() -> Result<()> {
                     cfg.liveness_enabled = liveness_enabled;
                     cfg.ask_permission = ask_permission;
                     cfg.retry_limit = retry_limit;
+                    cfg.camera_path = camera_path;
                     println!("⚙️ Configuration: thr={}, smile={}, auto={}, live={}, ask={}, retry={}", 
                         threshold, smile_required, autocapture, liveness_enabled, ask_permission, retry_limit);
                     vec![DaemonResponse::ActionSuccess { msg: "Configuration updated".to_string() }]
@@ -178,6 +181,11 @@ async fn main() -> Result<()> {
 
                     vec![DaemonResponse::ActionSuccess { msg: format!("Model {} download started in background.", name) }]
                 },
+                DaemonRequest::GetCameraList => {
+                    let devices = nokhwa::query(nokhwa::utils::ApiBackend::Video4Linux).unwrap_or_default();
+                    let list: Vec<String> = devices.iter().map(|d| d.human_name()).collect();
+                    vec![DaemonResponse::CameraList { devices: list }]
+                },
                 DaemonRequest::Verify { user } => {
                     let cfg = config.lock().await;
                     if !enabled.load(Ordering::SeqCst) {
@@ -198,13 +206,19 @@ async fn main() -> Result<()> {
                         let devices = nokhwa::query(nokhwa::utils::ApiBackend::Video4Linux)?;
                         if devices.is_empty() { anyhow::bail!("No camera found"); }
                         
-                        // Prioritize IR camera if available
-                        let target_index = devices.iter().find(|d| {
-                            let name = d.human_name().to_lowercase();
-                            name.contains("ir") || name.contains("infrared")
-                        }).map(|d| d.index().clone()).unwrap_or(devices[0].index().clone());
+                        // Prioritize IR camera if available, or use manual override
+                        let target_index = if let Some(ref path) = cfg.camera_path {
+                            devices.iter().find(|d| d.human_name() == *path || d.index().to_string() == *path)
+                                .map(|d| d.index().clone())
+                                .unwrap_or(devices[0].index().clone())
+                        } else {
+                            devices.iter().find(|d| {
+                                let name = d.human_name().to_lowercase();
+                                name.contains("ir") || name.contains("infrared")
+                            }).map(|d| d.index().clone()).unwrap_or(devices[0].index().clone())
+                        };
                         
-                        let mut camera = Camera::new(target_index, RequestedFormat::new::<RgbFormat>(RequestedFormatType::Closest))?;
+                        let mut camera = Camera::new(target_index, RequestedFormat::new::<RgbFormat>(RequestedFormatType::None))?;
                         camera.open_stream()?;
                         std::thread::sleep(std::time::Duration::from_millis(500));
                         Ok(DynamicImage::ImageRgb8(camera.frame()?.decode_image::<RgbFormat>()?))

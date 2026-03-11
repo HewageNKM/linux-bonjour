@@ -22,9 +22,11 @@ pub enum DaemonRequest {
         liveness_enabled: bool,
         ask_permission: bool,
         retry_limit: u32,
+        camera_path: Option<String>,
     },
     GetHardwareStatus,
     DownloadModel { name: String },
+    GetCameraList,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -46,6 +48,7 @@ pub enum DaemonResponse {
         name: String,
         percentage: f32 
     },
+    CameraList { devices: Vec<String> },
 }
 
 pub struct UdsServer {

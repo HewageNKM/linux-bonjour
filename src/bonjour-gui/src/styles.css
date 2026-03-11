@@ -629,13 +629,13 @@ pre {
 }
 
 input:checked + .switch-slider {
-  background: var(--success) !important;
-  border-color: var(--success);
+  background-color: var(--success) !important;
+  border-color: var(--success) !important;
 }
 
 input:checked + .switch-slider:before {
   transform: translateX(20px);
-  background-color: #ffffff;
+  background-color: #ffffff !important;
 }
 
 /* Range Slider Fix */

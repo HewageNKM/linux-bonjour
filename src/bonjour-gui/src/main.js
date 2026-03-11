@@ -20,6 +20,7 @@ const settingSystemEnabled = getEl('setting-system-enabled');
 const settingAskPermission = getEl('setting-ask-permission');
 const settingRetryLimit = getEl('setting-retry-limit');
 const settingModel = getEl('setting-model');
+const settingCamera = getEl('setting-camera');
 const toastContainer = getEl('toast-container');
 const usernameInput = getEl('username');
 const enrollBtn = getEl('enroll-btn');
@@ -83,6 +84,7 @@ getEl('save-settings-btn').addEventListener('click', async () => {
         const liveness_enabled = settingLiveness.checked;
         const ask_permission = settingAskPermission.checked;
         const retry_limit = parseInt(settingRetryLimit.value) || 3;
+        const camera_path = settingCamera.value === 'auto' ? null : settingCamera.value;
         const model = settingModel.value;
 
         // Sync Global State if Changed
@@ -94,7 +96,8 @@ getEl('save-settings-btn').addEventListener('click', async () => {
             autocapture: autocapture,
             livenessEnabled: liveness_enabled,
             askPermission: ask_permission,
-            retryLimit: retry_limit
+            retryLimit: retry_limit,
+            cameraPath: camera_path
         });
         
         showToast("Configuration saved successfully!");
@@ -175,6 +178,20 @@ async function updateSystemStatus() {
         const idents = await invoke("list_identities");
         if (idents.status === "IDENTITY_LIST") {
             statIdentities.innerText = idents.users.length;
+        }
+        
+        // Refresh Camera List
+        const cameras = await invoke("run_biometric_command", { cmd: "GET_CAMERA_LIST" });
+        if (cameras.status === "CAMERA_LIST") {
+            const current = settingCamera.value;
+            settingCamera.innerHTML = '<option value="auto">Auto-Detect (Recommended)</option>';
+            cameras.devices.forEach(cam => {
+                const opt = document.createElement('option');
+                opt.value = cam;
+                opt.innerText = cam;
+                settingCamera.appendChild(opt);
+            });
+            if (current) settingCamera.value = current;
         }
     } catch (error) {
         console.warn("Status update cycle failed:", error);
