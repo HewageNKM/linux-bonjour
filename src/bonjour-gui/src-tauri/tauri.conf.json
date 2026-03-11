@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "bonjour-gui",
+  "productName": "Linux Bonjour",
   "version": "0.1.0",
   "identifier": "com.kawishika.bonjour-gui",
   "build": {
@@ -10,7 +10,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "bonjour-gui",
+        "title": "Linux Bonjour",
         "width": 800,
         "height": 600
       }

@@ -15,15 +15,20 @@ use onnx_utils::InferenceEngine;
 use signature_utils::SignatureStore;
 use ipc_utils::{UdsServer, DaemonRequest, DaemonResponse};
 use security_utils::{EncryptionProvider, TpmProvider, PlainProvider};
+use ort::ep::ExecutionProvider;
 
 struct DaemonConfig {
     threshold: f32,
     smile_required: bool,
+    autocapture: bool,
+    liveness_enabled: bool,
+    ask_permission: bool,
+    retry_limit: u32,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    println!("🦀 Linux Bonjour Rust Daemon (Async UDS Mode)");
+    println!("🐧 Linux Bonjour Rust Daemon (Async UDS Mode)");
     
     // 1. Initialize AI Engine
     println!("🤖 Initializing AI Engine...");
@@ -49,7 +54,24 @@ async fn main() -> Result<()> {
     let config = Arc::new(Mutex::new(DaemonConfig {
         threshold: 0.45,
         smile_required: true,
+        autocapture: false,
+        liveness_enabled: true,
+        ask_permission: false,
+        retry_limit: 3,
     }));
+    
+    // Detect Acceleration
+    let acceleration = if ort::execution_providers::CUDAExecutionProvider::default().is_available().unwrap_or(false) {
+        "GPU (CUDA)".to_string()
+    } else if ort::execution_providers::TensorRTExecutionProvider::default().is_available().unwrap_or(false) {
+        "GPU (TensorRT)".to_string()
+    } else {
+        "CPU (Standard)".to_string()
+    };
+    let tpm_status = match TpmProvider::new() {
+        Ok(_) => "TPM 2.0 (Active)".to_string(),
+        Err(_) => "Software Fallback".to_string(),
+    };
     
     println!("✅ AI Models and Secure Storage ready.");
 
@@ -66,6 +88,8 @@ async fn main() -> Result<()> {
         let store = Arc::clone(&store_cloned);
         let enabled = Arc::clone(&enabled_cloned);
         let config = Arc::clone(&config_cloned);
+        let tpm_locked = tpm_status.clone();
+        let accel_locked = acceleration.clone();
         
         async move {
             match req {
@@ -90,25 +114,97 @@ async fn main() -> Result<()> {
                         Err(e) => vec![DaemonResponse::Failure { reason: e.to_string() }],
                     }
                 },
-                DaemonRequest::UpdateConfig { threshold, smile_required } => {
+                DaemonRequest::UpdateConfig { threshold, smile_required, autocapture, liveness_enabled, ask_permission, retry_limit } => {
                     let mut cfg = config.lock().await;
                     cfg.threshold = threshold;
                     cfg.smile_required = smile_required;
-                    println!("⚙️ Configuration updated: threshold={}, smile={}", threshold, smile_required);
+                    cfg.autocapture = autocapture;
+                    cfg.liveness_enabled = liveness_enabled;
+                    cfg.ask_permission = ask_permission;
+                    cfg.retry_limit = retry_limit;
+                    println!("⚙️ Configuration: thr={}, smile={}, auto={}, live={}, ask={}, retry={}", 
+                        threshold, smile_required, autocapture, liveness_enabled, ask_permission, retry_limit);
                     vec![DaemonResponse::ActionSuccess { msg: "Configuration updated".to_string() }]
                 },
+                DaemonRequest::GetHardwareStatus => {
+                    let devices = nokhwa::query(nokhwa::utils::ApiBackend::Video4Linux).unwrap_or_default();
+                    let camera_type = if devices.iter().any(|d| d.human_name().to_lowercase().contains("ir") || d.human_name().to_lowercase().contains("infrared")) {
+                        "IR Camera (Detected)".to_string()
+                    } else {
+                        "RGB Camera (Standard)".to_string()
+                    };
+                    vec![DaemonResponse::HardwareStatus {
+                        tpm: tpm_locked,
+                        acceleration: accel_locked,
+                        camera: camera_type,
+                    }]
+                },
+                DaemonRequest::DownloadModel { name } => {
+                    println!("📥 IPC: Download requested for model: {}", name);
+                    // Use curl to download model weights on demand (Placeholder URL pattern)
+                    // In a production scenario, these would point to the project's CDN or GitHub releases.
+                    let model_url = match name.as_str() {
+                        "buffalo_s" => "https://github.com/HewageNKM/linux-hello/releases/download/models/buffalo_s.zip",
+                        "antelope" => "https://github.com/HewageNKM/linux-hello/releases/download/models/antelope.zip",
+                        _ => {
+                            return vec![DaemonResponse::Failure { reason: format!("Unknown model: {}", name) }];
+                        }
+                    };
+
+                    let name_cloned = name.clone();
+                    tokio::spawn(async move {
+                        let target_path = format!("/usr/share/linux-bonjour/models/models/{}", name_cloned);
+                        let _ = std::fs::create_dir_all(&target_path);
+                        
+                        println!("🚀 Starting download of {} to {}...", name_cloned, target_path);
+                        // Simulate progress for UI feedback
+                        // In reality, one would wrap a download stream to report percentage.
+                        
+                        let status = std::process::Command::new("curl")
+                            .arg("-L")
+                            .arg(model_url)
+                            .arg("-o")
+                            .arg(format!("{}/weights.zip", target_path))
+                            .status();
+
+                        if let Ok(s) = status {
+                            if s.success() {
+                                println!("✅ Model {} downloaded successfully.", name_cloned);
+                            } else {
+                                eprintln!("❌ Failed to download model {}.", name_cloned);
+                            }
+                        }
+                    });
+
+                    vec![DaemonResponse::ActionSuccess { msg: format!("Model {} download started in background.", name) }]
+                },
                 DaemonRequest::Verify { user } => {
+                    let cfg = config.lock().await;
                     if !enabled.load(Ordering::SeqCst) {
                         return vec![DaemonResponse::Failure { reason: "System is globally disabled".to_string() }];
                     }
+
+                    if cfg.ask_permission {
+                        println!("💬 Authorization requested for user: {}", user);
+                        // In a real scenario, this would trigger a Zenity prompt or OS notification
+                        // For now, we signal back to PAM/GUI that confirmation is needed.
+                        return vec![DaemonResponse::Info { msg: "CONSENT_REQUIRED".to_string() }];
+                    }
+
                     println!("🔍 IPC: Verification request for user: {}", user);
                     
-                    // Capture image
+                    // Capture image with IR priority
                     let capture_result: Result<DynamicImage> = (|| {
                         let devices = nokhwa::query(nokhwa::utils::ApiBackend::Video4Linux)?;
                         if devices.is_empty() { anyhow::bail!("No camera found"); }
-                        let target_device = if devices.len() > 1 { &devices[1] } else { &devices[0] };
-                        let mut camera = Camera::new(target_device.index().clone(), RequestedFormat::new::<RgbFormat>(RequestedFormatType::None))?;
+                        
+                        // Prioritize IR camera if available
+                        let target_index = devices.iter().find(|d| {
+                            let name = d.human_name().to_lowercase();
+                            name.contains("ir") || name.contains("infrared")
+                        }).map(|d| d.index().clone()).unwrap_or(devices[0].index().clone());
+                        
+                        let mut camera = Camera::new(target_index, RequestedFormat::new::<RgbFormat>(RequestedFormatType::AbsoluteHighestResolution))?;
                         camera.open_stream()?;
                         std::thread::sleep(std::time::Duration::from_millis(500));
                         Ok(DynamicImage::ImageRgb8(camera.frame()?.decode_image::<RgbFormat>()?))

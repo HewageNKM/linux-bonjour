@@ -51,7 +51,7 @@ mkdir -p pkg/lib/systemd/system
 # Generate DEB Metadata
 cat <<EOF > pkg/DEBIAN/control
 Package: linux-bonjour
-Version: 2.0.0
+Version: 2.1.0
 Section: utils
 Priority: optional
 Architecture: amd64
@@ -60,16 +60,15 @@ Depends: libpam0g, libxcb-cursor0, libgl1, libglib2.0-0, libnotify-bin, tpm2-too
 Description:
   Linux Bonjour - Professional biometric face-recognition authentication.
   A secure, light-weight face-recognition authentication system for Linux.
-  Includes a Rust-based PAM module and a high-performance Python AI daemon.
+  Includes a Rust-based PAM module and a high-performance Rust AI daemon.
 EOF
 
 cat <<EOF > pkg/DEBIAN/postinst
 #!/bin/bash
 set -e
 BASE_DIR="/usr/share/linux-bonjour"
-VENV="\$BASE_DIR/venv"
 MODELS_DIR="\$BASE_DIR/models"
-echo "Configuring Linux Bonjour v2.0.0 Rust Core..."
+echo "Configuring Linux Bonjour v2.1.0 Rust Core..."
 
 # 1. Setup Persistent Infrastructure
 echo "Configuring system paths..."
@@ -117,7 +116,7 @@ echo "Activating face recognition system-wide..."
 bash \$BASE_DIR/scripts/setup_pam.sh --enable-all
 
 echo "------------------------------------------------"
-echo "Linux Bonjour v2.0.0 Installed Successfully! 🎉"
+echo "Linux Bonjour v2.1.0 Installed Successfully! 🎉"
 echo "Let the Face ID era begin."
 echo "Hardware permissions and udev rules activated."
 echo "------------------------------------------------"
@@ -148,11 +147,11 @@ cp config/linux-bonjour.logrotate pkg/etc/logrotate.d/linux-bonjour
 cp org.linuxbonjour.conf pkg/usr/share/linux-bonjour/
 cp org.linuxbonjour.policy pkg/usr/share/polkit-1/actions/ 2>/dev/null || true
 cp linux-bonjour.desktop pkg/usr/share/applications/ 2>/dev/null || true
-cp src/gui/assets/logo.png pkg/usr/share/pixmaps/linux-bonjour.png 2>/dev/null || true
+cp src/bonjour-gui/src-tauri/icons/icon.png pkg/usr/share/pixmaps/linux-bonjour.png 2>/dev/null || true
 
 # 3. Scripts Staging
 cp -r scripts pkg/usr/share/linux-bonjour/
-cp src/gui/assets/logo.png pkg/usr/share/linux-bonjour/logo.png
+cp src/bonjour-gui/src-tauri/icons/icon.png pkg/usr/share/linux-bonjour/logo.png
 
 # 3. Model staging (Removed pre-downloading to reduce .deb size)
 # Models will be downloaded during postinst on the target system.

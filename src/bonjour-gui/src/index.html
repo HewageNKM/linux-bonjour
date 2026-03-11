@@ -11,8 +11,8 @@
     <div id="app">
       <aside class="sidebar">
         <div class="logo">
-          <span class="logo-icon">🦀</span>
-          <span class="logo-text">Bonjour</span>
+          <img src="assets/logo.png" class="logo-icon" alt="Linux Bonjour Logo">
+          <span class="logo-text">Linux Bonjour</span>
         </div>
         <nav>
           <button class="nav-item active" data-view="dashboard">
@@ -27,6 +27,9 @@
           <button class="nav-item" data-view="logs">
             <span class="icon">📜</span> System Logs
           </button>
+          <button class="nav-item" data-view="about">
+            <span class="icon">ℹ️</span> About
+          </button>
         </nav>
         <div class="sidebar-footer">
           <div class="version">v2.0.0-rust</div>
@@ -36,99 +39,179 @@
       <main class="content">
         <!-- Dashboard View -->
         <section id="view-dashboard" class="view active">
-          <div class="header-compact">
-            <h2>System Overview</h2>
-            <div class="system-toggle-inline">
-              <span>System Active</span>
-              <label class="switch">
-                  <input type="checkbox" id="system-enabled" checked>
-                  <span class="slider round"></span>
-              </label>
-            </div>
-          </div>
-
-          <div class="grid-stats">
+          <h2 class="view-title">Dashboard Overview</h2>
+          
+          <div class="stats-grid">
             <div class="stat-card">
-              <span class="stat-label">Identities</span>
+              <span class="stat-label">System Status</span>
+              <span id="stat-status" class="stat-value active-pulse">Active</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-label">Enrolled Identities</span>
               <span id="stat-identities" class="stat-value">0</span>
             </div>
-            <div class="stat-card">
-              <span class="stat-label">Service Status</span>
-              <span id="stat-status" class="stat-value success">Active</span>
-            </div>
           </div>
-
-          <section class="log-container">
-            <h3>Recent Activity</h3>
-            <div id="status-log" class="status-log">
-              <div class="log-entry info">Console ready. Monitoring daemon...</div>
+          
+          <h3 class="section-divider">Hardware Diagnostics</h3>
+          <div class="stats-grid">
+            <div class="stat-card hardware">
+              <span class="stat-label">Biometric TPM</span>
+              <span id="stat-tpm" class="stat-value info">Checking...</span>
             </div>
-          </section>
-        </section>
-
-        <!-- Enrollment View -->
-        <section id="view-enrollment" class="view">
-          <h2>Identity Management</h2>
-          <div class="enrollment-layout">
-            <div class="identity-list-container">
-              <h3>Trusted Identities</h3>
-              <div id="identity-list" class="identity-list">
-                <!-- Populated by JS -->
-                <div class="empty-state">No identities enrolled.</div>
-              </div>
+            <div class="stat-card hardware">
+              <span class="stat-label">Engine Acceleration</span>
+              <span id="stat-acceleration" class="stat-value info">Checking...</span>
             </div>
-            <div class="enroll-form card">
-              <h3>New Enrollment</h3>
-              <div class="input-group">
-                <input type="text" id="username" placeholder="Username..." value="kawishika" />
-                <button id="enroll-btn">Capture Face</button>
-              </div>
-              <p class="hint">Ensure good lighting for biometric capture.</p>
+            <div class="stat-card hardware">
+              <span class="stat-label">Detection Camera</span>
+              <span id="stat-camera" class="stat-value info">Checking...</span>
             </div>
           </div>
         </section>
 
-        <!-- Settings View -->
-        <section id="view-settings" class="view">
-          <h2>System Settings</h2>
-          <div class="settings-grid">
-            <div class="settings-card card">
-              <h3>Recognition Engine</h3>
-              <div class="setting-item">
-                <label>Match Sensitivity</label>
-                <div class="range-container">
-                  <input type="range" id="threshold-slider" min="0" max="100" value="45">
-                  <span id="threshold-value">0.45</span>
-                </div>
-              </div>
-              <div class="setting-item">
-                <label>Liveness Requirements</label>
-                <div class="checkbox-group">
-                  <label class="cb-container">
-                    <input type="checkbox" id="setting-smile" checked>
-                    Smile to unlock
-                  </label>
-                </div>
-              </div>
+      <!-- Enrollment View -->
+      <div id="view-enrollment" class="view">
+        <h2 class="view-title">Enrollment</h2>
+        <div class="enroll-form">
+          <input type="text" id="username" placeholder="Username" class="glass-input">
+          <button id="enroll-btn" class="primary-btn">START ENROLLMENT</button>
+        </div>
+        <h3 class="section-title">Enrolled Identities</h3>
+        <div id="identity-list" class="identity-list">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+
+      <!-- Settings View -->
+      <div id="view-settings" class="view">
+        <h2 class="view-title">Settings</h2>
+        <div class="settings-group">
+          <div class="setting-item">
+            <div class="setting-info">
+              <span class="setting-name">Recognition Threshold</span>
+              <span class="setting-desc">Minimum similarity score (0.45 recommended)</span>
+            </div>
+            <div class="slider-container">
+              <input type="range" id="threshold-slider" min="0" max="100" value="45" class="range-slider">
+              <span id="threshold-value" class="slider-label">0.45</span>
             </div>
           </div>
-          <div class="actions">
-            <button id="save-settings-btn" class="primary">Save Configuration</button>
+          
+          <div class="setting-item">
+            <div class="setting-info">
+              <span class="setting-name">Smile Required</span>
+              <span class="setting-desc">Require engagement landmarks (Liveness)</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="setting-smile" checked>
+              <span class="switch-slider"></span>
+            </label>
           </div>
-        </section>
 
-        <!-- Logs View -->
-        <section id="view-logs" class="view">
-          <div class="header-compact">
-            <h2>System Logs</h2>
-            <button id="refresh-logs" class="secondary small">Refresh</button>
+          <div class="setting-item">
+            <div class="setting-info">
+              <span class="setting-name">Auto-Capture</span>
+              <span class="setting-desc">Automatically capture frame when face is steady</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="setting-autocapture">
+              <span class="switch-slider"></span>
+            </label>
           </div>
-          <div class="journal-view">
-            <pre id="journal-output">Initializing journal viewer...</pre>
+
+          <div class="setting-item">
+            <div class="setting-info">
+              <span class="setting-name">Passive Liveness</span>
+              <span class="setting-desc">Enable anti-spoofing checks</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="setting-liveness" checked>
+              <span class="switch-slider"></span>
+            </label>
           </div>
-        </section>
-      </main>
-    </div>
+
+          <div class="setting-item" style="border-left: 4px solid var(--info);">
+            <div class="setting-info">
+              <span class="setting-name">Global System Enable</span>
+              <span class="setting-desc">Completely enable or disable biometric authentication</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="setting-system-enabled" checked>
+              <span class="switch-slider"></span>
+            </label>
+          </div>
+
+          <div class="setting-item">
+            <div class="setting-info">
+              <span class="setting-name">Require Confirmation</span>
+              <span class="setting-desc">Ask for permission with an authorize dialog before identifying</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="setting-ask-permission">
+              <span class="switch-slider"></span>
+            </label>
+          </div>
+
+          <div class="setting-item">
+            <div class="setting-info">
+              <span class="setting-name">Retry Limit</span>
+              <span class="setting-desc">Maximum number of recognition attempts before fallback</span>
+            </div>
+            <select id="setting-retry-limit" class="glass-input select">
+              <option value="1">1 Attempt</option>
+              <option value="2">2 Attempts</option>
+              <option value="3" selected>3 Attempts (Default)</option>
+              <option value="5">5 Attempts</option>
+            </select>
+          </div>
+
+          <div class="setting-item">
+            <div class="setting-info">
+              <span class="setting-name">Active Model</span>
+              <span class="setting-desc">Face detection & recognition model</span>
+            </div>
+            <select id="setting-model" class="glass-input select">
+              <option value="buffalo_l">Buffalo L (Default)</option>
+              <option value="buffalo_s">Buffalo S (Lightweight)</option>
+              <option value="antelope">Antelope (High Accuracy)</option>
+            </select>
+          </div>
+
+          <button id="save-settings-btn" class="primary-btn" style="margin-top: 20px;">SAVE CONFIGURATION</button>
+        </div>
+      </div>
+
+      <!-- Logs View -->
+      <div id="view-logs" class="view">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+          <h2 class="view-title" style="margin: 0;">System Logs</h2>
+          <button id="refresh-logs" class="secondary-btn">REFRESH</button>
+        </div>
+        <pre id="journal-output" class="log-container">Loading...</pre>
+      </div>
+
+      <!-- About View -->
+      <div id="view-about" class="view">
+        <h2 class="view-title">About</h2>
+        <div class="credits-card">
+          <div class="credits-header">
+            <span class="app-name">Linux Bonjour</span>
+            <span class="app-version">v2.1.0-Rust (Advanced)</span>
+          </div>
+          <div class="developer-section">
+            <h3>Developers</h3>
+            <p>Hewage NKM & Antigravity AI</p>
+          </div>
+          <div class="about-section">
+            <h3>System Status</h3>
+            <p>A memory-safe biometric authentication system for Linux, written in Rust and powered by ONNX Runtime.</p>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Notification Toasts -->
+    <div id="toast-container" class="toast-container"></div>
 
     <script type="module" src="/main.js"></script>
   </body>

@@ -25,9 +25,9 @@ Linux Bonjour brings seamless, secure, and premium face-unlock to your Ubuntu/GN
 
 1. **Download and Install**:
    ```bash
-   sudo dpkg -i linux-bonjour_1.1.0_amd64.deb
+   sudo dpkg -i linux-bonjour_2.1.0_amd64.deb
    ```
-   *Note: Dependencies like `python3-venv` and `libpam0g` will be handled automatically.*
+   *Note: Native dependencies like `tpm2-tools` and `libpam0g` will be handled automatically.*
 
 2. **Enroll Your Face**:
    Open **"Linux Bonjour"** from your application menu (or run `linux-bonjour`). Click **"Capture Signature"** and follow the holographic scanner countdown.

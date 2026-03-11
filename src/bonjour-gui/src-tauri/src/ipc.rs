@@ -1,6 +1,6 @@
 use serde::{Serialize, Deserialize};
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "cmd", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum DaemonRequest {
     Verify { user: String },
@@ -9,7 +9,14 @@ pub enum DaemonRequest {
     SetEnabled { enabled: bool },
     ListIdentities,
     DeleteIdentity { user: String },
-    UpdateConfig { threshold: f32, smile_required: bool },
+    UpdateConfig { 
+        threshold: f32, 
+        smile_required: bool,
+        autocapture: bool,
+        liveness_enabled: bool,
+    },
+    GetHardwareStatus,
+    DownloadModel { name: String },
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -22,4 +29,13 @@ pub enum DaemonResponse {
     Status { enabled: bool },
     IdentityList { users: Vec<String> },
     ActionSuccess { msg: String },
+    HardwareStatus { 
+        tpm: String, 
+        acceleration: String, 
+        camera: String 
+    },
+    DownloadProgress { 
+        name: String,
+        percentage: f32 
+    },
 }

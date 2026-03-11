@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 
-ort = { version = "2.0.0-rc.12", features = ["ndarray", "download-binaries"] }
+ort = { version = "2.0.0-rc.12", features = ["ndarray", "download-binaries", "cuda", "tensorrt"] }
 nokhwa = { version = "0.10", features = ["input-v4l"] }
 ndarray = "0.17"
 image = "0.25"

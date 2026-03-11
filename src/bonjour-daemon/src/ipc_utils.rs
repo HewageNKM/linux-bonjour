@@ -15,10 +15,19 @@ pub enum DaemonRequest {
     SetEnabled { enabled: bool },
     ListIdentities,
     DeleteIdentity { user: String },
-    UpdateConfig { threshold: f32, smile_required: bool },
+    UpdateConfig { 
+        threshold: f32, 
+        smile_required: bool,
+        autocapture: bool,
+        liveness_enabled: bool,
+        ask_permission: bool,
+        retry_limit: u32,
+    },
+    GetHardwareStatus,
+    DownloadModel { name: String },
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "status", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum DaemonResponse {
     Scanning { msg: String },
@@ -28,6 +37,15 @@ pub enum DaemonResponse {
     Status { enabled: bool },
     IdentityList { users: Vec<String> },
     ActionSuccess { msg: String },
+    HardwareStatus { 
+        tpm: String, 
+        acceleration: String, 
+        camera: String 
+    },
+    DownloadProgress { 
+        name: String,
+        percentage: f32 
+    },
 }
 
 pub struct UdsServer {

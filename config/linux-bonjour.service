@@ -15,11 +15,10 @@ RuntimeDirectory=linux-bonjour
 StateDirectory=linux-bonjour
 
 # Hardening and Sandboxing
-NoNewPrivileges=yes
-ProtectSystem=full
-ProtectHome=read-only
-PrivateTmp=yes
 CapabilityBoundingSet=CAP_SETUID CAP_SETGID CAP_DAC_OVERRIDE
+SupplementaryGroups=tss
+DeviceAllow=/dev/tpm0 rw
+DeviceAllow=/dev/tpmrm0 rw
 DeviceAllow=/dev/video0 rw
 DeviceAllow=/dev/video1 rw
 DeviceAllow=/dev/video2 rw

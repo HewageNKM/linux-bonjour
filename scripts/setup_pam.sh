@@ -29,7 +29,7 @@ enable_service() {
     local file=$1
     if [ ! -f "$file" ]; then return; fi
     
-    # Aggressive Legacy Purge (v1.6.2 Stability)
+    # Aggressive Legacy Purge
     if grep -q "pam_hello.so" "$file"; then
         echo "Purging legacy pam_hello.so from $(basename "$file")..."
         sed -i "/pam_hello.so/d" "$file"
