@@ -43,8 +43,15 @@ Linux Bonjour brings seamless, secure, and premium face-unlock to your Ubuntu/GN
 - **Search Duration**: Control how long the scanner looks for your face before falling back to password (1s - 10s).
 - **AI Model Mode**: Hot-reload between `buffalo_s` (Fastest) and `antelopev2` (Most Precise) instantly.
 
----
-
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+## 🔐 Hardware Compatibility & TPM 2.0 Binding
+
+Linux Bonjour incorporates True-Hardware Entropy extraction via the TPM 2.0 Module (`/dev/tpmrm0`) natively via the `tss-esapi` Endorsement framework. 
+
+* **Active (Device Secured)**: Your Facial Signatures are cryptographically bound to an AES XChaCha20-Poly1305 key mixed with True Hardware Random Number Generation (HRNG) derived from the TPM. This completely defends against zero-day dataset extraction.
+* **TPM 1.2 / Missing TPM (`Software Fallback`)**: If a legacy TPM 1.2 chip is detected or the module is firmware-locked, the framework will safely catch the isolation panic and immediately downgrade to a deterministic, secure `/etc/machine-id` file-hash encryption so facial logins continue working without data loss. UEFI/BIOS TPM upgrades to 2.0 will seamlessly upgrade future signatures.

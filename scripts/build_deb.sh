@@ -129,15 +129,19 @@ systemctl restart linux-bonjour
 # 8. Hardware Auto-Configuration (TPM & Camera)
 echo "Detecting hardware for optimal performance..."
 
-# 8.1 TPM Permissions
-if [ -c "/dev/tpmrm0" ]; then
-    chmod 666 /dev/tpmrm0
-    echo "TPM Device permissions relaxed (0666)."
-fi
+# 8.1 TPM Permissions & Secure Hardware Enclave Access
+# Different versions of Ubuntu map TPM ownership to 'tss' or 'vtpm'
 groupadd -f tss
+groupadd -f vtpm
+
+# Ensure the Daemon socket directory has secure execution inheritance
+chown root:tss /var/lib/linux-bonjour
+chmod 755 /var/lib/linux-bonjour
+
 if [ -n "$SUDO_USER" ]; then
     usermod -a -G tss "$SUDO_USER"
-    echo "Added $SUDO_USER to 'tss' group."
+    usermod -a -G vtpm "$SUDO_USER"
+    echo "Added $SUDO_USER to enterprise 'tss' and 'vtpm' Enclave Hardware groups."
 fi
 
 # 8.2 Camera Auto-Selection
