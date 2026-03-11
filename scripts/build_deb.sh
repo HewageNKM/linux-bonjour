@@ -31,7 +31,7 @@ cargo build --release
 echo "Building Tauri GUI..."
 cd "$PROJECT_ROOT/src/bonjour-gui"
 npm install
-npm run tauri build
+npm run tauri build -- --bundles deb
 
 cd "$PROJECT_ROOT"
 
