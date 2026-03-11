@@ -332,20 +332,24 @@ class FaceDaemon:
         # 2. Collect Target Embeddings
         targets = [] # List of (label, embedding)
         
-        # New: Search Locations
-        search_dirs = [self.config['users_dir']]
-        # Strip _int8 for local user dir as well
-        model_name = str(self.config.get('model_name', 'buffalo_l'))
-        model_base = model_name.replace("_int8", "")
-        # Safe string conversion for path functions
-        u_dir = str(self.config.get("users_dir", "config/users"))
-        # In service mode, we use BASE_DIR as the root
-        self.users_dir = os.path.join(BASE_DIR, u_dir, model_base)
+        # Phase 36: Correct Search Locations
+        # We search user local first, then global /var/lib
+        search_dirs = []
+        
+        model_base = str(self.config.get('model_name', 'buffalo_l')).replace("_int8", "")
+        
+        # 1. Local User Dir (~/.linux-bonjour/users/...)
         try:
             pw = pwd.getpwnam(username)
             user_local_dir = os.path.join(pw.pw_dir, ".linux-bonjour", "users", model_base)
-            search_dirs.insert(0, user_local_dir)
+            search_dirs.append(user_local_dir)
         except Exception: pass
+        
+        # 2. Global Shared Dir (/var/lib/linux-bonjour/users/...)
+        # This is already calculated in load_config() and kept in self.config['users_dir']
+        global_users_dir = self.config.get('users_dir')
+        if global_users_dir:
+            search_dirs.append(global_users_dir)
 
         if self.config.get("global_unlock", False):
             # Try ALL enrolled faces in ALL search locations
