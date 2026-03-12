@@ -113,6 +113,10 @@ impl UdsServer {
     {
         let path = Path::new(&self.socket_path);
         if path.exists() {
+            // Try to connect to see if another daemon is actually running
+            if tokio::net::UnixStream::connect(path).await.is_ok() {
+                anyhow::bail!("Another daemon instance is already running and responding at {}", self.socket_path);
+            }
             std::fs::remove_file(path)?;
         }
     

@@ -103,6 +103,19 @@ fn run_zenity_approval(user: &str) -> bool {
 async fn main() -> Result<()> {
     println!("🐧 Linux Bonjour Rust Daemon (Async UDS Mode)");
     
+    // 0. Single Instance Check (PID File)
+    let pid_path = "/run/linux-bonjour/daemon.pid";
+    if let Ok(existing_pid) = std::fs::read_to_string(pid_path) {
+        if let Ok(pid) = existing_pid.trim().parse::<i32>() {
+            // Check if process still exists
+            if std::path::Path::new(&format!("/proc/{}", pid)).exists() {
+                eprintln!("❌ Error: Another daemon instance (PID {}) is already running.", pid);
+                std::process::exit(1);
+            }
+        }
+    }
+    let _ = std::fs::write(pid_path, std::process::id().to_string());
+    
     // 1. Load Configuration
     let config = Arc::new(Mutex::new(DaemonConfig::load()));
 
@@ -334,6 +347,7 @@ async fn main() -> Result<()> {
 
                         let status = std::process::Command::new("curl")
                             .arg("-L")
+                            .arg("-s") // Silent mode
                             .arg(model_url)
                             .arg("-o")
                             .arg(format!("{}/weights.zip", target_path))
