@@ -1,7 +1,7 @@
 [package]
 name = "pam-bonjour"
-version = "0.1.0"
-edition = "2024"
+version = "2.3.4"
+edition = "2021"
 
 [lib]
 name = "pam_bonjour"

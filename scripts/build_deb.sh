@@ -6,12 +6,13 @@ set -e
 
 # v1.1.10: Make script robust to execution directory
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+VERSION="2.3.4"
 PROJECT_ROOT="$( dirname "$SCRIPT_DIR" )"
 cd "$PROJECT_ROOT"
 
 PKG_ROOT="$PROJECT_ROOT/pkg"
 
-echo "Building Linux Bonjour..."
+echo "Building Linux Bonjour v$VERSION..."
 echo "Project Root: $PROJECT_ROOT"
 
 # 1. Build Rust Components
@@ -51,7 +52,7 @@ mkdir -p pkg/lib/systemd/system
 # Generate DEB Metadata
 cat <<EOF > pkg/DEBIAN/control
 Package: linux-bonjour
-Version: 2.1.3
+Version: $VERSION
 Section: utils
 Priority: optional
 Architecture: amd64
@@ -68,13 +69,13 @@ cat <<EOF > pkg/DEBIAN/postinst
 set -e
 BASE_DIR="/usr/share/linux-bonjour"
 MODELS_DIR="\$BASE_DIR/models"
-echo "Configuring Linux Bonjour v2.1.0 Rust Core..."
+echo "Configuring Linux Bonjour v$VERSION Rust Core..."
 
 # 0. Download Core AI Models
 echo "Downloading core AI models (buffalo_l)..."
 mkdir -p \$MODELS_DIR
 if [ ! -f "\$MODELS_DIR/det_10g.onnx" ] || [ ! -f "\$MODELS_DIR/arcface_w600k.onnx" ]; then
-    curl -L -s "https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l.zip" -o "/tmp/buffalo_l.zip"
+    curl -L -s -S "https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l.zip" -o "/tmp/buffalo_l.zip"
     unzip -j -o -q "/tmp/buffalo_l.zip" -d "\$MODELS_DIR/"
     if [ -f "\$MODELS_DIR/w600k_r50.onnx" ]; then
         mv "\$MODELS_DIR/w600k_r50.onnx" "\$MODELS_DIR/arcface_w600k.onnx"
@@ -192,7 +193,7 @@ echo "Activating face recognition system-wide..."
 bash \$BASE_DIR/scripts/setup_pam.sh --enable-all
 
 echo "------------------------------------------------"
-echo "Linux Bonjour v2.1.0 Installed Successfully! 🎉"
+echo "Linux Bonjour v$VERSION Installed Successfully! 🎉"
 echo "Let the Face ID era begin."
 echo "Hardware permissions and udev rules activated."
 echo "------------------------------------------------"
@@ -249,7 +250,6 @@ chmod 755 pkg/DEBIAN/postinst
 chmod 755 pkg/DEBIAN/prerm
 
 
-VERSION=$(grep "Version:" pkg/DEBIAN/control | awk '{print $2}')
 echo "Staged version: $VERSION"
 
 # 4. Build Package

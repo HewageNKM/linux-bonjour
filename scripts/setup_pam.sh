@@ -73,13 +73,18 @@ check_status() {
 case "$1" in
     --enable-all)
         require_root
+        # Centralize in common-auth for system-wide coverage
         enable_service "$COMMON_AUTH"
-        enable_service "$GDM_AUTH"
-        enable_service "$SDDM_AUTH"
-        enable_service "/etc/pam.d/lightdm"
-        enable_service "/etc/pam.d/sudo"
-        enable_service "/etc/pam.d/polkit-1"
-        echo "Face recognition enabled system-wide!"
+        
+        # Explicitly remove redundant entries from service-specific files 
+        # to avoid double-prompting when common-auth is included.
+        disable_service "$GDM_AUTH"
+        disable_service "$SDDM_AUTH"
+        disable_service "/etc/pam.d/lightdm"
+        disable_service "/etc/pam.d/sudo"
+        disable_service "/etc/pam.d/polkit-1"
+        
+        echo "Face recognition enabled system-wide via centralized PAM configuration!"
         ;;
     --disable-all)
         require_root

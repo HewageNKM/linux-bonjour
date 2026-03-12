@@ -10,6 +10,49 @@ const views = document.querySelectorAll('.view');
 const statStatus = getEl('stat-status');
 const statIdentities = getEl('stat-identities');
 const identityList = getEl('identity-list');
+
+// --- CUSTOM MODALS ---
+const promptModal = getEl('prompt-modal');
+const promptTitle = getEl('prompt-title');
+const promptMessage = getEl('prompt-message');
+const promptInput = getEl('prompt-input');
+const promptCancelBtn = getEl('prompt-cancel-btn');
+const promptOkBtn = getEl('prompt-ok-btn');
+
+function customPrompt(title, message, defaultValue = "") {
+    return new Promise((resolve) => {
+        promptTitle.innerText = title;
+        promptMessage.innerText = message;
+        promptInput.value = defaultValue;
+        promptModal.classList.remove('hidden');
+        promptInput.focus();
+        promptInput.select();
+
+        const cleanup = () => {
+            promptModal.classList.add('hidden');
+            // Use once: true or remove listeners to avoid accumulation
+            promptOkBtn.onclick = null;
+            promptCancelBtn.onclick = null;
+            promptInput.onkeydown = null;
+        };
+
+        promptOkBtn.onclick = () => {
+            const val = promptInput.value;
+            cleanup();
+            resolve(val);
+        };
+
+        promptCancelBtn.onclick = () => {
+            cleanup();
+            resolve(null);
+        };
+
+        promptInput.onkeydown = (e) => {
+            if (e.key === 'Enter') promptOkBtn.onclick();
+            if (e.key === 'Escape') promptCancelBtn.onclick();
+        };
+    });
+}
 const journalOutput = getEl('journal-output');
 const thresholdSlider = getEl('threshold-slider');
 const thresholdValue = getEl('threshold-value');
@@ -23,6 +66,9 @@ const settingAskPermission = getEl('setting-ask-permission');
 const settingRetryLimit = getEl('setting-retry-limit');
 const settingModel = getEl('setting-model');
 const settingCamera = getEl('setting-camera');
+const settingEnableLogin = getEl('setting-enable-login');
+const settingEnableSudo = getEl('setting-enable-sudo');
+const settingEnablePolkit = getEl('setting-enable-polkit');
 const toastContainer = getEl('toast-container');
 const usernameInput = getEl('username');
 const enrollBtn = getEl('enroll-btn');
@@ -36,6 +82,31 @@ const statCamera = getEl('stat-camera');
 const statSecurity = getEl('stat-security');
 const statLiveness = getEl('stat-liveness');
 const statRetries = getEl('stat-retries');
+const statActiveModel = getEl('stat-active-model');
+const statLivenessMode = getEl('stat-liveness-mode');
+const statGroups = getEl('stat-groups');
+const btnStartService = getEl('btn-start-service');
+const btnStopService = getEl('btn-stop-service');
+const btnRestartService = getEl('btn-restart-service');
+const enrollmentModal = getEl('enrollment-modal');
+const enrollmentVideo = getEl('enrollment-video');
+const enrollmentInstruction = getEl('enrollment-instruction');
+const cancelEnrollmentBtn = getEl('cancel-enrollment');
+const progressCircle = document.querySelector('.progress-ring__circle');
+if (progressCircle) {
+    const radius = progressCircle.r.baseVal.value;
+    const circumference = radius * 2 * Math.PI;
+    progressCircle.style.strokeDasharray = `${circumference} ${circumference}`;
+    progressCircle.style.strokeDashoffset = circumference;
+}
+
+function setEnrollmentProgress(percent) {
+    if (!progressCircle) return;
+    const radius = progressCircle.r.baseVal.value;
+    const circumference = radius * 2 * Math.PI;
+    const offset = circumference - (percent / 100) * circumference;
+    progressCircle.style.strokeDashoffset = offset;
+}
 
 // --- NOTIFICATION SYSTEM ---
 function showToast(message, type = 'success') {
@@ -124,6 +195,11 @@ async function syncSettings() {
             settingAskPermission.checked = cfg.ask_permission;
             settingRetryLimit.value = cfg.retry_limit;
             
+            settingSystemEnabled.checked = cfg.enabled;
+            settingEnableLogin.checked = cfg.enable_login;
+            settingEnableSudo.checked = cfg.enable_sudo;
+            settingEnablePolkit.checked = cfg.enable_polkit;
+
             // Populate Camera List
             const cameras = await invoke("get_camera_list");
             if (cameras.status === "CAMERA_LIST") {
@@ -138,14 +214,26 @@ async function syncSettings() {
                 settingCamera.value = current;
             }
 
-            // Sync Global State
-            const status = await invoke("get_system_status");
-            settingSystemEnabled.checked = status.enabled;
         }
     } catch (err) {
         console.error("Failed to sync settings:", err);
     }
 }
+// --- SERVICE MANAGEMENT ---
+async function handleServiceAction(action) {
+    try {
+        showToast(`${action.charAt(0).toUpperCase() + action.slice(1)}ing service...`, 'info');
+        await invoke("manage_service", { action });
+        showToast(`Service ${action}ed successfully!`);
+        setTimeout(updateSystemStatus, 1000);
+    } catch (err) {
+        showToast(`Service action failed: ${err}`, 'error');
+    }
+}
+
+if (btnStartService) btnStartService.addEventListener('click', () => handleServiceAction('start'));
+if (btnStopService) btnStopService.addEventListener('click', () => handleServiceAction('stop'));
+if (btnRestartService) btnRestartService.addEventListener('click', () => handleServiceAction('restart'));
 
 thresholdSlider.addEventListener('input', (e) => {
     const val = (e.target.value / 100).toFixed(2);
@@ -177,6 +265,7 @@ getEl('save-settings-btn').addEventListener('click', async () => {
         const camera_path = settingCamera.value === 'auto' ? null : settingCamera.value;
         const model = settingModel.value;
 
+
         // Sync Global State
         await invoke("toggle_system", { enabled: settingSystemEnabled.checked });
 
@@ -188,7 +277,11 @@ getEl('save-settings-btn').addEventListener('click', async () => {
             livenessThreshold: liveness_threshold,
             askPermission: ask_permission,
             retryLimit: retry_limit,
-            cameraPath: camera_path
+            cameraPath: camera_path,
+            activeModel: model,
+            enableLogin: settingEnableLogin.checked,
+            enableSudo: settingEnableSudo.checked,
+            enablePolkit: settingEnablePolkit.checked
         });
         
         showToast("Configuration saved successfully!");
@@ -219,9 +312,32 @@ async function loadIdentities() {
                     <div class="identity-avatar">${user[0].toUpperCase()}</div>
                     <span>${user}</span>
                 </div>
-                <button class="delete-btn" data-user="${user}">DELETE</button>
+                <div class="identity-actions">
+                    <button class="rename-btn" data-user="${user}">RENAME</button>
+                    <button class="delete-btn" data-user="${user}">DELETE</button>
+                </div>
             `;
             identityList.appendChild(el);
+        });
+
+        identityList.querySelectorAll('.rename-btn').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const oldName = btn.dataset.user;
+                const newName = await customPrompt(
+                    "Rename Identity",
+                    `Enter a new name for '${oldName}':`,
+                    oldName
+                );
+                if (newName && newName !== oldName) {
+                    try {
+                        await invoke("rename_identity", { oldName, newName });
+                        showToast(`Renamed ${oldName} to ${newName}`);
+                        loadIdentities();
+                    } catch (err) {
+                        showToast(`Rename failed: ${err}`, 'error');
+                    }
+                }
+            });
         });
 
         identityList.querySelectorAll('.delete-btn').forEach(btn => {
@@ -261,10 +377,14 @@ async function updateSystemStatus() {
             statTpm.innerText = hw.tpm;
             statAcceleration.innerText = hw.acceleration;
             statCamera.innerText = hw.camera;
+            if (statActiveModel) {
+                statActiveModel.innerText = hw.active_model || "None";
+            }
             
             statTpm.className = `stat-value ${hw.tpm.includes('Active') ? 'success' : 'info'}`;
             statAcceleration.className = `stat-value ${hw.acceleration.includes('GPU') ? 'success' : 'info'}`;
             statCamera.className = `stat-value ${hw.camera.includes('IR') ? 'success' : 'info'}`;
+            if (statActiveModel) statActiveModel.className = 'stat-value success';
         }
         
         const cfg = await invoke("get_config");
@@ -276,19 +396,41 @@ async function updateSystemStatus() {
             statSecurity.className = `stat-value ${cfg.threshold >= 0.45 ? 'success' : 'info'}`;
             
             if (cfg.smile_required) {
-                statLiveness.innerText = "Active (Smile)";
+                statLiveness.innerText = "Enabled";
                 statLiveness.className = 'stat-value success';
+                if (statLivenessMode) statLivenessMode.innerText = "Active (Smile)";
             } else if (cfg.liveness_enabled) {
-                statLiveness.innerText = "Passive (LBP)";
+                statLiveness.innerText = "Enabled";
                 statLiveness.className = 'stat-value success';
+                if (statLivenessMode) statLivenessMode.innerText = "Passive (LBP)";
             } else {
                 statLiveness.innerText = "Disabled";
                 statLiveness.className = 'stat-value danger';
+                if (statLivenessMode) statLivenessMode.innerText = "N/A";
             }
+            if (statLivenessMode) statLivenessMode.className = cfg.liveness_enabled || cfg.smile_required ? 'stat-value success' : 'stat-value danger';
             
             statRetries.innerText = `${cfg.retry_limit} Attempts`;
             statRetries.className = 'stat-value info';
         }
+
+        // Security Groups check
+        try {
+            const groups = await invoke("check_groups");
+            const hasTpm = groups.includes('tss') || groups.includes('vtpm');
+            const hasVideo = groups.includes('video');
+            
+            let groupText = "";
+            if (hasTpm && hasVideo) groupText = "Ready (tss, video)";
+            else if (hasTpm) groupText = "Missing video group";
+            else if (hasVideo) groupText = "Missing tss group";
+            else groupText = "No access groups!";
+            
+            if (statGroups) {
+                statGroups.innerText = groupText;
+                statGroups.className = `stat-value ${hasTpm && hasVideo ? 'success' : 'danger'}`;
+            }
+        } catch (e) { console.error("Group check failed", e); }
         
         const idents = await invoke("list_identities");
         if (idents.status === "IDENTITY_LIST") {
@@ -301,25 +443,34 @@ async function updateSystemStatus() {
 
 // --- ENROLLMENT ---
 enrollBtn.addEventListener('click', async () => {
-    const user = usernameInput.value.trim();
-    if (!user) {
-        showToast("Please enter a username", "error");
-        return;
-    }
+    const user = usernameInput.value.trim() || "default";
 
     enrollBtn.disabled = true;
-    showToast(`Starting capture for ${user}...`, "info");
+    enrollmentModal.classList.remove('hidden');
+    setEnrollmentProgress(0);
+    enrollmentInstruction.innerText = "Initializing camera...";
+    enrollmentVideo.src = "";
 
     try {
         await invoke("run_biometric_command", { cmd: "ENROLL", user });
-        showToast(`Enrollment successful for ${user}!`);
-        loadIdentities();
     } catch (err) {
-        showToast(`Biometric Error: ${err}`, "error");
-    } finally {
+        showToast(`Enrollment failed: ${err}`, "error");
+        enrollmentModal.classList.add('hidden');
         enrollBtn.disabled = false;
     }
 });
+
+if (cancelEnrollmentBtn) {
+    cancelEnrollmentBtn.addEventListener('click', async () => {
+        enrollmentModal.classList.add('hidden');
+        enrollBtn.disabled = false;
+        try {
+            await invoke("stop_biometric_command");
+        } catch (e) {
+            console.warn("Could not stop biometric command:", e);
+        }
+    });
+}
 
 // --- LOGS ---
 async function loadLogs() {
@@ -337,13 +488,39 @@ getEl('refresh-logs').addEventListener('click', loadLogs);
 // --- LISTEN FOR REAL-TIME EVENTS ---
 listen("biometric-status", (event) => {
     const resp = event.payload;
-    if (resp.status === "SCANNING") {
+    
+    if (resp.status === "ENROLLMENT_FRAME") {
+        if (enrollmentVideo) {
+            enrollmentVideo.src = `data:image/jpeg;base64,${resp.base64_image}`;
+        }
+        if (enrollmentInstruction) {
+            enrollmentInstruction.innerText = resp.message;
+        }
+        setEnrollmentProgress(resp.progress * 100);
+    } else if (resp.status === "SCANNING") {
+        // Scanning feedback (reduced noise)
+    } else if (resp.status === "INFO") {
         showToast(resp.msg, "info");
     } else if (resp.status === "SUCCESS") {
-        showToast(`Authenticated: ${resp.user}`, "success");
+        if (enrollBtn.disabled) {
+            // This was likely an enrollment success
+            showToast(`Enrollment successful!`);
+            enrollmentModal.classList.add('hidden');
+            enrollBtn.disabled = false;
+            loadIdentities();
+        } else {
+            showToast(`Authenticated: ${resp.user}`, "success");
+            updateSystemStatus();
+        }
+    } else if (resp.status === "ACTION_SUCCESS") {
+        showToast(resp.msg, "success");
         updateSystemStatus();
     } else if (resp.status === "FAILURE") {
-        showToast(resp.reason, "error");
+        showToast(`Error: ${resp.reason}`, "error");
+        if (enrollBtn.disabled) {
+            enrollmentModal.style.display = 'none';
+            enrollBtn.disabled = false;
+        }
     }
 });
 

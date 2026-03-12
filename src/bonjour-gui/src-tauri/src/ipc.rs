@@ -22,11 +22,20 @@ pub enum DaemonRequest {
         ask_permission: bool,
         retry_limit: u32,
         camera_path: Option<String>,
+        active_model: Option<String>,
+        #[serde(default)]
+        enable_login: bool,
+        #[serde(default)]
+        enable_sudo: bool,
+        #[serde(default)]
+        enable_polkit: bool,
     },
     GetHardwareStatus,
     DownloadModel { name: String },
     GetCameraList,
     GetConfig,
+    RenameIdentity { old_name: String, new_name: String },
+    STOP,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -48,11 +57,18 @@ pub enum DaemonResponse {
     HardwareStatus { 
         tpm: String, 
         acceleration: String, 
-        camera: String 
+        camera: String,
+        active_model: String,
+        enabled: bool
     },
     DownloadProgress { 
         name: String,
         percentage: f32 
+    },
+    EnrollmentFrame {
+        base64_image: String,
+        message: String,
+        progress: f32
     },
     CameraList { devices: Vec<CameraInfo> },
     Config {
@@ -64,5 +80,14 @@ pub enum DaemonResponse {
         ask_permission: bool,
         retry_limit: u32,
         camera_path: Option<String>,
+        active_model: String,
+        #[serde(default)]
+        enabled: bool,
+        #[serde(default)]
+        enable_login: bool,
+        #[serde(default)]
+        enable_sudo: bool,
+        #[serde(default)]
+        enable_polkit: bool,
     },
 }

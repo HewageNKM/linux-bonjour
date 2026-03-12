@@ -28,11 +28,20 @@ pub enum DaemonRequest {
         ask_permission: bool,
         retry_limit: u32,
         camera_path: Option<String>,
+        active_model: Option<String>,
+        #[serde(default = "default_true")]
+        enable_login: bool,
+        #[serde(default = "default_true")]
+        enable_sudo: bool,
+        #[serde(default = "default_true")]
+        enable_polkit: bool,
     },
     GetHardwareStatus,
     DownloadModel { name: String },
     GetCameraList,
     GetConfig,
+    RenameIdentity { old_name: String, new_name: String },
+    STOP,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -54,11 +63,18 @@ pub enum DaemonResponse {
     HardwareStatus { 
         tpm: String, 
         acceleration: String, 
-        camera: String 
+        camera: String,
+        active_model: String,
+        enabled: bool
     },
     DownloadProgress { 
         name: String,
         percentage: f32 
+    },
+    EnrollmentFrame {
+        base64_image: String,
+        message: String,
+        progress: f32
     },
     CameraList { devices: Vec<CameraInfo> },
     Config {
@@ -70,8 +86,16 @@ pub enum DaemonResponse {
         ask_permission: bool,
         retry_limit: u32,
         camera_path: Option<String>,
+        active_model: String,
+        enabled: bool,
+        has_face_data: bool,
+        enable_login: bool,
+        enable_sudo: bool,
+        enable_polkit: bool,
     },
 }
+
+fn default_true() -> bool { true }
 
 pub struct UdsServer {
     socket_path: String,
@@ -86,14 +110,18 @@ impl UdsServer {
 
     pub async fn start<F, Fut>(&self, handler: F) -> Result<()>
     where
-        F: Fn(DaemonRequest) -> Fut + Clone + Send + 'static,
-        Fut: std::future::Future<Output = Vec<DaemonResponse>> + Send,
+        F: Fn(DaemonRequest, tokio::sync::mpsc::Sender<DaemonResponse>) -> Fut + Clone + Send + 'static,
+        Fut: std::future::Future<Output = ()> + Send,
     {
         let path = Path::new(&self.socket_path);
         if path.exists() {
+            // Try to connect to see if another daemon is actually running
+            if tokio::net::UnixStream::connect(path).await.is_ok() {
+                anyhow::bail!("Another daemon instance is already running and responding at {}", self.socket_path);
+            }
             std::fs::remove_file(path)?;
         }
-
+    
         let listener = UnixListener::bind(path)?;
         
         // Ensure the socket is world-writable (0666) so the GUI/PAM can connect
@@ -103,25 +131,35 @@ impl UdsServer {
             perms.set_mode(0o666);
             let _ = std::fs::set_permissions(path, perms);
         }
-
+    
         println!("📡 UDS Server listening on: {}", self.socket_path);
-
+    
         loop {
             match listener.accept().await {
                 Ok((stream, _)) => {
                     let h = handler.clone();
                     tokio::spawn(async move {
-                        let mut framed = Framed::new(stream, LinesCodec::new());
-                        while let Some(Ok(line)) = framed.next().await {
-                            if let Ok(req) = serde_json::from_str::<DaemonRequest>(&line) {
-                                let responses = h(req).await;
-                                for res in responses {
-                                    if let Ok(res_json) = serde_json::to_string(&res) {
-                                        let _ = framed.send(res_json).await;
-                                    }
+                        let (mut writer, mut reader) = Framed::new(stream, LinesCodec::new()).split();
+                        let (tx, mut rx) = tokio::sync::mpsc::channel::<DaemonResponse>(10);
+                        
+                        // Spawn writer task
+                        let writer_handle = tokio::spawn(async move {
+                            while let Some(res) = rx.recv().await {
+                                if let Ok(res_json) = serde_json::to_string(&res) {
+                                    if let Err(_) = writer.send(res_json).await { break; }
                                 }
                             }
+                        });
+                        
+                        while let Some(Ok(line)) = reader.next().await {
+                            if let Ok(req) = serde_json::from_str::<DaemonRequest>(&line) {
+                                let tx_inner = tx.clone();
+                                h(req, tx_inner).await;
+                            }
                         }
+                        
+                        drop(tx); // Close channel to terminate writer
+                        let _ = writer_handle.await;
                     });
                 }
                 Err(e) => {

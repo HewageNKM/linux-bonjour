@@ -34,6 +34,12 @@ pub enum DaemonRequest {
         ask_permission: bool,
         retry_limit: u32,
         camera_path: Option<String>,
+        #[serde(default)]
+        enable_login: bool,
+        #[serde(default)]
+        enable_sudo: bool,
+        #[serde(default)]
+        enable_polkit: bool,
     },
     GetHardwareStatus,
     DownloadModel { name: String },
@@ -60,7 +66,9 @@ pub enum DaemonResponse {
     HardwareStatus { 
         tpm: String, 
         acceleration: String, 
-        camera: String 
+        camera: String,
+        active_model: String,
+        enabled: bool
     },
     DownloadProgress { 
         name: String,
@@ -76,6 +84,11 @@ pub enum DaemonResponse {
         ask_permission: bool,
         retry_limit: u32,
         camera_path: Option<String>,
+        enabled: bool,
+        has_face_data: bool,
+        enable_login: bool,
+        enable_sudo: bool,
+        enable_polkit: bool,
     },
 }
 
@@ -172,15 +185,78 @@ pub unsafe extern "C" fn pam_sm_authenticate(
         }
     }
 
-    send_message(pamh, PAM_TEXT_INFO, "🐧 [Bonjour] Initializing face recognition...");
+    let mut retry_limit = 3; // Default fallback
+    let mut system_enabled = true;
+    let mut has_face_data = true;
+    let mut enable_login = true;
+    let mut enable_sudo = true;
+    let mut enable_polkit = true;
 
-    match perform_verify(pamh, &user, bypass_consent) {
-        PamReturnCode::SUCCESS => PamReturnCode::SUCCESS,
-        _ => PamReturnCode::AUTH_ERR,
+    if let Ok(mut stream) = UnixStream::connect(SOCKET_PATH) {
+        let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
+        let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+        let req_json = serde_json::to_string(&DaemonRequest::GetConfig).unwrap_or_default();
+        if let Ok(_) = stream.write_all(format!("{}\n", req_json).as_bytes()) {
+            let mut reader = BufReader::new(stream).lines();
+            if let Some(Ok(line)) = reader.next() {
+                if let Ok(DaemonResponse::Config { 
+                    retry_limit: limit, 
+                    enabled, 
+                    has_face_data: hfd, 
+                    enable_login: el, 
+                    enable_sudo: es, 
+                    enable_polkit: ep, 
+                    .. 
+                }) = serde_json::from_str(&line) {
+                    retry_limit = limit;
+                    system_enabled = enabled;
+                    has_face_data = hfd;
+                    enable_login = el;
+                    enable_sudo = es;
+                    enable_polkit = ep;
+                }
+            }
+        }
     }
+
+    // Silent fallback if disabled globally
+    if !system_enabled {
+        return PamReturnCode::AUTHINFO_UNAVAIL;
+    }
+
+    // Granular service checks
+    let mut service = String::new();
+    let mut service_ptr: *const libc::c_void = ptr::null();
+    if pam_sys::get_item(&*pamh, pam_sys::PamItemType::SERVICE, &mut service_ptr) == PamReturnCode::SUCCESS && !service_ptr.is_null() {
+        let service_cstr = CStr::from_ptr(service_ptr as *const libc::c_char);
+        service = service_cstr.to_string_lossy().into_owned().to_lowercase();
+        
+        // Skip if service specific toggle is OFF
+        if ((service == "sudo" || service == "sudo-i" || service == "su") && !enable_sudo) || 
+           ((service == "login" || service.contains("gdm") || service.contains("sddm") || service.contains("lightdm") || service.contains("dm")) && !enable_login) ||
+           ((service.starts_with("polkit") || service == "pkexec") && !enable_polkit) {
+            return PamReturnCode::AUTHINFO_UNAVAIL;
+        }
+
+        // Ignore consent on pre-login display managers and TTY login
+        if service.contains("gdm") || service.contains("sddm") || service.contains("lightdm") || service.contains("dm") || service == "login" {
+            bypass_consent = true;
+        }
+    }
+
+    // Useful feedback if no face data
+    if !has_face_data {
+        unsafe { send_message(pamh, PAM_TEXT_INFO, "⚠️ [Bonjour] No face data found. Please enroll using the Bonjour GUI."); }
+        return PamReturnCode::AUTHINFO_UNAVAIL;
+    }
+
+    // Initial attempt header
+    unsafe { send_message(pamh, PAM_TEXT_INFO, &format!("📸 [Bonjour] Authentication Attempt {}/{}", 1, retry_limit)); }
+    
+    perform_verify(pamh, &user, bypass_consent, 1, retry_limit)
 }
 
-fn perform_verify(pamh: *mut PamHandle, user: &str, bypass_consent: bool) -> PamReturnCode {
+fn perform_verify(pamh: *mut PamHandle, user: &str, bypass_consent: bool, attempt: u32, max_attempts: u32) -> PamReturnCode {
     match UnixStream::connect(SOCKET_PATH) {
         Ok(mut stream) => {
             let _ = stream.set_read_timeout(Some(Duration::from_secs(30)));
@@ -201,7 +277,7 @@ fn perform_verify(pamh: *mut PamHandle, user: &str, bypass_consent: bool) -> Pam
                 if let Ok(resp) = serde_json::from_str::<DaemonResponse>(&line) {
                     match resp {
                         DaemonResponse::Scanning { msg } => {
-                            unsafe { send_message(pamh, PAM_TEXT_INFO, &format!("📸 [Bonjour] {}", msg)); }
+                            unsafe { send_message(pamh, PAM_TEXT_INFO, &format!("   - {}", msg)); }
                         },
                         DaemonResponse::Info { msg } => {
                             if msg == "CONSENT_REQUIRED" {
@@ -209,7 +285,7 @@ fn perform_verify(pamh: *mut PamHandle, user: &str, bypass_consent: bool) -> Pam
                                 unsafe {
                                     if prompt_user(pamh, prompt).is_some() {
                                         // User consented (pressed enter), retry with bypass
-                                        return perform_verify(pamh, user, true);
+                                        return perform_verify(pamh, user, true, attempt, max_attempts);
                                     } else {
                                         return PamReturnCode::AUTH_ERR;
                                     }
@@ -225,16 +301,33 @@ fn perform_verify(pamh: *mut PamHandle, user: &str, bypass_consent: bool) -> Pam
                         DaemonResponse::Failure { reason } => {
                             unsafe { send_message(pamh, PAM_ERROR_MSG, &format!("❌ [Bonjour] Authentication failed: {}", reason)); }
                             
+                            // Immediately fail without retry if the system is disabled
+                            if reason.contains("System is globally disabled") {
+                                return PamReturnCode::AUTHINFO_UNAVAIL;
+                            }
+
+                            if attempt >= max_attempts {
+                                unsafe { send_message(pamh, PAM_ERROR_MSG, "❌ [Bonjour] Maximum attempts reached."); }
+                                unsafe { send_message(pamh, PAM_TEXT_INFO, "⚠️ [Bonjour] Biometric fallback. Please use system password."); }
+                                return PamReturnCode::AUTHINFO_UNAVAIL;
+                            }
+
                             // Ask for retry
-                            let prompt = "🔄 [Bonjour] Try face recognition again? (Y/n): ";
+                            let prompt = format!("🔄 [Bonjour] Face failure. Try again? (yes/no): ");
                             unsafe {
-                                if let Some(r) = prompt_user(pamh, prompt) {
-                                    if !r.to_lowercase().starts_with('n') {
-                                        return perform_verify(pamh, user, false);
+                                if let Some(r) = prompt_user(pamh, &prompt) {
+                                    if !r.trim().to_lowercase().starts_with('n') {
+                                        unsafe { send_message(pamh, PAM_TEXT_INFO, &format!("📸 [Bonjour] Authentication Attempt {}/{}", attempt + 1, max_attempts)); }
+                                        return perform_verify(pamh, user, false, attempt + 1, max_attempts);
+                                    } else {
+                                        unsafe { send_message(pamh, PAM_TEXT_INFO, "⚠️ [Bonjour] Biometric fallback. Please use system password."); }
                                     }
+                                } else {
+                                    unsafe { send_message(pamh, PAM_TEXT_INFO, "⚠️ [Bonjour] Biometric fallback. Please use system password."); }
                                 }
                             }
-                            return PamReturnCode::AUTH_ERR;
+                            // Return AUTHINFO_UNAVAIL to indicate biometric failure so PAM moves on
+                            return PamReturnCode::AUTHINFO_UNAVAIL;
                         },
                         _ => {}
                     }
@@ -243,7 +336,7 @@ fn perform_verify(pamh: *mut PamHandle, user: &str, bypass_consent: bool) -> Pam
             PamReturnCode::AUTH_ERR
         },
         Err(_) => {
-            unsafe { send_message(pamh, PAM_ERROR_MSG, "❌ [Bonjour] Daemon not unreachable."); }
+            unsafe { send_message(pamh, PAM_ERROR_MSG, "❌ [Bonjour] Daemon unreachable."); }
             PamReturnCode::AUTH_ERR
         }
     }
