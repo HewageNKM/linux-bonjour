@@ -34,6 +34,12 @@ pub enum DaemonRequest {
         ask_permission: bool,
         retry_limit: u32,
         camera_path: Option<String>,
+        #[serde(default)]
+        enable_login: bool,
+        #[serde(default)]
+        enable_sudo: bool,
+        #[serde(default)]
+        enable_polkit: bool,
     },
     GetHardwareStatus,
     DownloadModel { name: String },
@@ -60,7 +66,8 @@ pub enum DaemonResponse {
     HardwareStatus { 
         tpm: String, 
         acceleration: String, 
-        camera: String 
+        camera: String,
+        enabled: bool
     },
     DownloadProgress { 
         name: String,
@@ -242,6 +249,9 @@ pub unsafe extern "C" fn pam_sm_authenticate(
         return PamReturnCode::AUTHINFO_UNAVAIL;
     }
 
+    // Initial attempt header
+    unsafe { send_message(pamh, PAM_TEXT_INFO, &format!("📸 [Bonjour] Authentication Attempt {}/{}", 1, retry_limit)); }
+    
     perform_verify(pamh, &user, bypass_consent, 1, retry_limit)
 }
 
@@ -266,7 +276,7 @@ fn perform_verify(pamh: *mut PamHandle, user: &str, bypass_consent: bool, attemp
                 if let Ok(resp) = serde_json::from_str::<DaemonResponse>(&line) {
                     match resp {
                         DaemonResponse::Scanning { msg } => {
-                            unsafe { send_message(pamh, PAM_TEXT_INFO, &format!("📸 [Bonjour] (Attempt {}/{}) {}", attempt, max_attempts, msg)); }
+                            unsafe { send_message(pamh, PAM_TEXT_INFO, &format!("   - {}", msg)); }
                         },
                         DaemonResponse::Info { msg } => {
                             if msg == "CONSENT_REQUIRED" {
@@ -306,6 +316,7 @@ fn perform_verify(pamh: *mut PamHandle, user: &str, bypass_consent: bool, attemp
                             unsafe {
                                 if let Some(r) = prompt_user(pamh, &prompt) {
                                     if !r.trim().to_lowercase().starts_with('n') {
+                                        unsafe { send_message(pamh, PAM_TEXT_INFO, &format!("📸 [Bonjour] Authentication Attempt {}/{}", attempt + 1, max_attempts)); }
                                         return perform_verify(pamh, user, false, attempt + 1, max_attempts);
                                     } else {
                                         unsafe { send_message(pamh, PAM_TEXT_INFO, "⚠️ [Bonjour] Biometric fallback. Please use system password."); }

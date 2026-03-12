@@ -16,7 +16,8 @@ use onnx_utils::InferenceEngine;
 use signature_utils::SignatureStore;
 use ipc_utils::{UdsServer, DaemonRequest, DaemonResponse, CameraInfo};
 use security_utils::{EncryptionProvider, PlainProvider, SoftwareProvider, TpmProvider};
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Default)]
+#[serde(default)]
 struct DaemonConfig {
     threshold: f32,
     smile_required: bool,
@@ -342,11 +343,15 @@ async fn main() -> Result<()> {
                     let timeout = std::time::Duration::from_secs(3);
                     let mut last_error = "No face detected".to_string();
 
+                    let mut iteration = 0;
                     while start_time.elapsed() < timeout {
-                        // Send real-time scanning feedback
-                        let _ = tx.send(DaemonResponse::Scanning { 
-                            msg: "Scanning...".to_string() 
-                        }).await;
+                        iteration += 1;
+                        // Send real-time scanning feedback less frequently
+                        if iteration % 5 == 1 {
+                            let _ = tx.send(DaemonResponse::Scanning { 
+                                msg: "Scanning...".to_string() 
+                            }).await;
+                        }
 
                         let capture_result: Result<DynamicImage> = (|| {
                             let devices = nokhwa::query(nokhwa::utils::ApiBackend::Video4Linux)?;
