@@ -27,6 +27,7 @@ struct DaemonConfig {
     ask_permission: bool,
     retry_limit: u32,
     camera_path: Option<String>,
+    active_model: String,
     enable_login: bool,
     enable_sudo: bool,
     enable_polkit: bool,
@@ -43,6 +44,7 @@ impl DaemonConfig {
             ask_permission: false,
             retry_limit: 3,
             camera_path: None,
+            active_model: "buffalo_l".to_string(),
             enable_login: true,
             enable_sudo: true,
             enable_polkit: true,
@@ -105,14 +107,26 @@ async fn main() -> Result<()> {
     // 2. Initialize Engine & Security
     println!("🤖 Initializing AI Engine...");
     let det_path = "/usr/share/linux-bonjour/models/det_10g.onnx";
-    let rec_path = "/usr/share/linux-bonjour/models/arcface_w600k.onnx";
+    let active_model = config.lock().await.active_model.clone();
+    let rec_path = if active_model == "buffalo_l" {
+        "/usr/share/linux-bonjour/models/arcface_w600k.onnx".to_string()
+    } else {
+        format!("/usr/share/linux-bonjour/models/{}/arcface_w600k.onnx", active_model)
+    };
     
-    let engine_res = InferenceEngine::new(det_path, rec_path);
+    let engine_res = InferenceEngine::new(det_path, &rec_path);
     let engine = match engine_res {
         Ok(e) => Arc::new(Mutex::new(e)),
         Err(e) => {
-            eprintln!("⚠️ AI Models not found: {}. Waiting for GUI download.", e);
-            return Err(anyhow::anyhow!("Critical AI models missing. Please ensure /usr/share/linux-bonjour/models exists."));
+            eprintln!("⚠️ AI Models not found: {}. Fallback to buffalo_l.", e);
+            // Try fallback
+            let fb_path = "/usr/share/linux-bonjour/models/arcface_w600k.onnx";
+            match InferenceEngine::new(det_path, fb_path) {
+                Ok(e) => Arc::new(Mutex::new(e)),
+                Err(_) => {
+                    return Err(anyhow::anyhow!("Critical AI models missing. Please ensure /usr/share/linux-bonjour/models exists."));
+                }
+            }
         }
     };
     
@@ -193,6 +207,7 @@ async fn main() -> Result<()> {
                     ask_permission, 
                     retry_limit: limit, 
                     camera_path: cam,
+                    active_model,
                     enable_login,
                     enable_sudo,
                     enable_polkit
@@ -206,6 +221,32 @@ async fn main() -> Result<()> {
                     cfg.ask_permission = ask_permission;
                     cfg.retry_limit = limit;
                     cfg.camera_path = cam;
+                    
+                    if let Some(new_model) = active_model {
+                        if new_model != cfg.active_model {
+                            println!("🔄 Switching AI Model to: {}", new_model);
+                            let det_path = "/usr/share/linux-bonjour/models/det_10g.onnx";
+                            let rec_path = if new_model == "buffalo_l" {
+                                "/usr/share/linux-bonjour/models/arcface_w600k.onnx".to_string()
+                            } else {
+                                format!("/usr/share/linux-bonjour/models/{}/arcface_w600k.onnx", new_model)
+                            };
+
+                            if std::path::Path::new(&rec_path).exists() {
+                                let mut engine_lock = engine.lock().await;
+                                if let Ok(new_engine) = InferenceEngine::new(det_path, &rec_path) {
+                                    *engine_lock = new_engine;
+                                    cfg.active_model = new_model;
+                                    println!("✅ AI Engine hot-swapped successfully.");
+                                } else {
+                                    eprintln!("❌ Failed to initialize new model engine.");
+                                }
+                            } else {
+                                println!("⚠️ Model files not found at {}. Download required.", rec_path);
+                            }
+                        }
+                    }
+
                     cfg.enable_login = enable_login;
                     cfg.enable_sudo = enable_sudo;
                     cfg.enable_polkit = enable_polkit;
@@ -250,37 +291,59 @@ async fn main() -> Result<()> {
                     };
 
                     let name_cloned = name.clone();
+                    let tx_cloned = tx.clone();
                     tokio::spawn(async move {
                         let target_path = format!("/usr/share/linux-bonjour/models/{}", name_cloned);
                         let _ = std::fs::create_dir_all(&target_path);
                         
-                        let _ = std::process::Command::new("curl")
+                        let _ = tx_cloned.send(DaemonResponse::Info { msg: format!("Downloading {}...", name_cloned) }).await;
+
+                        let status = std::process::Command::new("curl")
                             .arg("-L")
                             .arg(model_url)
                             .arg("-o")
                             .arg(format!("{}/weights.zip", target_path))
                             .status();
-                            
-                        let _ = std::process::Command::new("unzip")
-                            .arg("-j")
-                            .arg("-o")
-                            .arg("-q")
-                            .arg(format!("{}/weights.zip", target_path))
-                            .arg("-d")
-                            .arg(&target_path)
-                            .status();
-                            
-                        let _ = std::fs::remove_file(format!("{}/weights.zip", target_path));
 
-                        if std::path::Path::new(&format!("{}/w600k_r50.onnx", target_path)).exists() {
-                            let _ = std::fs::rename(
-                                format!("{}/w600k_r50.onnx", target_path),
-                                format!("{}/arcface_w600k.onnx", target_path),
-                            );
+                        if let Ok(s) = status {
+                            if s.success() {
+                                let _ = tx_cloned.send(DaemonResponse::Info { msg: format!("Extracting {}...", name_cloned) }).await;
+                                let unzip_status = std::process::Command::new("unzip")
+                                    .arg("-j")
+                                    .arg("-o")
+                                    .arg("-q")
+                                    .arg(format!("{}/weights.zip", target_path))
+                                    .arg("-x")
+                                    .arg("*.txt")
+                                    .arg("-d")
+                                    .arg(&target_path)
+                                    .status();
+
+                                if let Ok(us) = unzip_status {
+                                    if us.success() {
+                                        let _ = std::fs::remove_file(format!("{}/weights.zip", target_path));
+                                        // Some models use w600k_r50.onnx, others use different names. 
+                                        // Buffalo S uses 'w600k_mbf.onnx' or similar. 
+                                        // Antelope uses 'antelopev2.onnx'
+                                        // We will look for *.onnx and rename to arcface_w600k.onnx if it exists
+                                        
+                                        let onnx_files = std::fs::read_dir(&target_path).unwrap().filter_map(|e| e.ok()).filter(|e| e.path().extension().map_or(false, |ex| ex == "onnx")).collect::<Vec<_>>();
+                                        for entry in onnx_files {
+                                            let fname = entry.file_name().to_string_lossy().to_string();
+                                            if fname != "det_10g.onnx" && (fname.contains("w600k") || fname.contains("antelope") || fname.contains(".onnx")) {
+                                                 let _ = std::fs::rename(entry.path(), format!("{}/arcface_w600k.onnx", target_path));
+                                                 break;
+                                            }
+                                        }
+
+                                        let _ = tx_cloned.send(DaemonResponse::ActionSuccess { msg: format!("Model {} ready", name_cloned) }).await;
+                                        return;
+                                    }
+                                }
+                            }
                         }
+                        let _ = tx_cloned.send(DaemonResponse::Failure { reason: format!("Failed to download model {}", name_cloned) }).await;
                     });
-
-                    let _ = tx.send(DaemonResponse::ActionSuccess { msg: format!("Model {} download started in background.", name) }).await;
                 },
                 DaemonRequest::GetCameraList => {
                     let devices = nokhwa::query(nokhwa::utils::ApiBackend::Video4Linux).unwrap_or_default();
@@ -292,11 +355,7 @@ async fn main() -> Result<()> {
                 },
                 DaemonRequest::GetConfig => {
                     let cfg = config.lock().await;
-                    let has_face_data = if let Ok(sigs) = SignatureStore::new("buffalo_l", Arc::new(PlainProvider)) {
-                        !sigs.list_identities().unwrap_or_default().is_empty()
-                    } else {
-                        false
-                    };
+                    let has_face_data = !store.list_identities().unwrap_or_default().is_empty();
 
                     let _ = tx.send(DaemonResponse::Config {
                         threshold: cfg.threshold,
@@ -307,6 +366,7 @@ async fn main() -> Result<()> {
                         ask_permission: cfg.ask_permission,
                         retry_limit: cfg.retry_limit,
                         camera_path: cfg.camera_path.clone(),
+                        active_model: cfg.active_model.clone(),
                         enabled: enabled.load(Ordering::SeqCst),
                         has_face_data,
                         enable_login: cfg.enable_login,
