@@ -131,6 +131,7 @@ async fn main() -> Result<()> {
     };
 
     let signature_store = Arc::new(SignatureStore::new("/var/lib/linux-bonjour/signatures", provider)?);
+    let system_enabled = Arc::new(AtomicBool::new(true));
     
     let acceleration = if engine.lock().await.has_gpu() { "Active (GPU Accelerator)" } else { "Active (CPU/OpenVINO)" }.to_string();
 
@@ -141,6 +142,7 @@ async fn main() -> Result<()> {
     
     let engine_cloned = Arc::clone(&engine);
     let store_cloned = Arc::clone(&signature_store);
+    let enabled_cloned = Arc::clone(&system_enabled);
     let config_cloned = Arc::clone(&config);
     let accel_cloned = acceleration.clone();
     let tpm_state_cloned = Arc::clone(&tpm_active_clone);
@@ -148,12 +150,22 @@ async fn main() -> Result<()> {
     server.start(move |req| {
         let engine = Arc::clone(&engine_cloned);
         let store = Arc::clone(&store_cloned);
+        let enabled = Arc::clone(&enabled_cloned);
         let config = Arc::clone(&config_cloned);
         let accel_locked = accel_cloned.clone();
         let tpm_state = Arc::clone(&tpm_state_cloned);
         
         async move {
             match req {
+                DaemonRequest::SetEnabled { enabled: val } => {
+                    enabled.store(val, Ordering::SeqCst);
+                    println!("⚙️ System {}", if val { "ENABLED" } else { "DISABLED" });
+                    vec![DaemonResponse::Status { enabled: val }]
+                },
+                DaemonRequest::GetStatus => {
+                    let is_enabled = enabled.load(Ordering::SeqCst);
+                    vec![DaemonResponse::Status { enabled: is_enabled }]
+                },
                 DaemonRequest::ListIdentities => {
                     match store.list_identities() {
                         Ok(users) => vec![DaemonResponse::IdentityList { users }],
@@ -202,7 +214,7 @@ async fn main() -> Result<()> {
                         tpm: tpm_string,
                         acceleration: accel_locked,
                         camera: camera_type,
-                        enabled: true,
+                        enabled: enabled.load(Ordering::SeqCst),
                     }]
                 },
                 DaemonRequest::DownloadModel { name } => {
@@ -272,6 +284,11 @@ async fn main() -> Result<()> {
                 },
                 DaemonRequest::Verify { user, bypass_consent } => {
                     let cfg = config.lock().await;
+                    
+                    if !enabled.load(Ordering::SeqCst) {
+                        println!("🚫 [Bonjour] System is globally DISABLED. Skipping verification.");
+                        return vec![DaemonResponse::Failure { reason: "System is globally disabled".to_string() }];
+                    }
 
                     if !bypass_consent && cfg.ask_permission {
                         if !run_zenity_approval(&user) {
@@ -355,7 +372,10 @@ async fn main() -> Result<()> {
                                                             vec![DaemonResponse::Failure { reason: format!("Match failed (score: {:.2})", score) }]
                                                         }
                                                     },
-                                                    Err(e) => vec![DaemonResponse::Failure { reason: e.to_string() }],
+                                                    Err(e) => {
+                                                        println!("⚠️ [Bonjour] No biometric signature for '{}'. Defaulting to system password.", user);
+                                                        vec![DaemonResponse::Failure { reason: format!("User '{}' not found: {}", user, e) }]
+                                                    },
                                                 }
                                             },
                                             Err(e) => vec![DaemonResponse::Failure { reason: e.to_string() }],

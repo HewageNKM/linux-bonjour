@@ -18,6 +18,7 @@ const livenessThresholdValue = getEl('liveness-threshold-value');
 const settingSmile = getEl('setting-smile');
 const settingAutocapture = getEl('setting-autocapture');
 const settingLiveness = getEl('setting-liveness');
+const settingSystemEnabled = getEl('setting-system-enabled');
 const settingAskPermission = getEl('setting-ask-permission');
 const settingRetryLimit = getEl('setting-retry-limit');
 const settingModel = getEl('setting-model');
@@ -173,6 +174,9 @@ getEl('save-settings-btn').addEventListener('click', async () => {
         const camera_path = settingCamera.value === 'auto' ? null : settingCamera.value;
         const model = settingModel.value;
 
+
+        // Sync Global State
+        await invoke("toggle_system", { enabled: settingSystemEnabled.checked });
 
         await invoke("update_config", { 
             threshold, 
