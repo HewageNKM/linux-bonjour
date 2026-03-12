@@ -271,6 +271,12 @@ async fn main() -> Result<()> {
                 },
                 DaemonRequest::GetConfig => {
                     let cfg = config.lock().await;
+                    let has_face_data = if let Ok(sigs) = SignatureStore::new("/var/lib/linux-bonjour", signature_utils::EncryptionProvider::Plain(PlainProvider)) {
+                        !sigs.list_identities().unwrap_or_default().is_empty()
+                    } else {
+                        false
+                    };
+
                     let _ = tx.send(DaemonResponse::Config {
                         threshold: cfg.threshold,
                         smile_required: cfg.smile_required,
@@ -280,6 +286,8 @@ async fn main() -> Result<()> {
                         ask_permission: cfg.ask_permission,
                         retry_limit: cfg.retry_limit,
                         camera_path: cfg.camera_path.clone(),
+                        enabled: enabled.load(Ordering::SeqCst),
+                        has_face_data,
                     }).await;
                 },
                 DaemonRequest::Verify { user, bypass_consent } => {

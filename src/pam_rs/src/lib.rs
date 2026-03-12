@@ -76,6 +76,8 @@ pub enum DaemonResponse {
         ask_permission: bool,
         retry_limit: u32,
         camera_path: Option<String>,
+        enabled: bool,
+        has_face_data: bool,
     },
 }
 
@@ -173,6 +175,9 @@ pub unsafe extern "C" fn pam_sm_authenticate(
     }
 
     let mut retry_limit = 3; // Default fallback
+    let mut system_enabled = true;
+    let mut has_face_data = true;
+
     if let Ok(mut stream) = UnixStream::connect(SOCKET_PATH) {
         let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
         let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
@@ -180,17 +185,27 @@ pub unsafe extern "C" fn pam_sm_authenticate(
         if let Ok(_) = stream.write_all(format!("{}\n", req_json).as_bytes()) {
             let mut reader = BufReader::new(stream).lines();
             if let Some(Ok(line)) = reader.next() {
-                if let Ok(DaemonResponse::Config { retry_limit: limit, .. }) = serde_json::from_str(&line) {
+                if let Ok(DaemonResponse::Config { retry_limit: limit, enabled, has_face_data: hfd, .. }) = serde_json::from_str(&line) {
                     retry_limit = limit;
+                    system_enabled = enabled;
+                    has_face_data = hfd;
                 }
             }
         }
     }
 
-    match perform_verify(pamh, &user, bypass_consent, 1, retry_limit) {
-        PamReturnCode::SUCCESS => PamReturnCode::SUCCESS,
-        _ => PamReturnCode::AUTH_ERR,
+    // Silent fallback if disabled
+    if !system_enabled {
+        return PamReturnCode::AUTHINFO_UNAVAIL;
     }
+
+    // Useful feedback if no face data
+    if !has_face_data {
+        unsafe { send_message(pamh, PAM_TEXT_INFO, "⚠️ [Bonjour] No face data found. Please enroll using the Bonjour GUI."); }
+        return PamReturnCode::AUTHINFO_UNAVAIL;
+    }
+
+    perform_verify(pamh, &user, bypass_consent, 1, retry_limit)
 }
 
 fn perform_verify(pamh: *mut PamHandle, user: &str, bypass_consent: bool, attempt: u32, max_attempts: u32) -> PamReturnCode {

@@ -71,6 +71,8 @@ pub enum DaemonResponse {
         ask_permission: bool,
         retry_limit: u32,
         camera_path: Option<String>,
+        enabled: bool,
+        has_face_data: bool,
     },
 }
 
