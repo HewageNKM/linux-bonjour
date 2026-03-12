@@ -6,7 +6,7 @@ set -e
 
 # v1.1.10: Make script robust to execution directory
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-VERSION="2.2.8"
+VERSION="2.2.9"
 PROJECT_ROOT="$( dirname "$SCRIPT_DIR" )"
 cd "$PROJECT_ROOT"
 
