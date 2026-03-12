@@ -22,6 +22,12 @@ pub enum DaemonRequest {
         ask_permission: bool,
         retry_limit: u32,
         camera_path: Option<String>,
+        #[serde(default)]
+        enable_login: bool,
+        #[serde(default)]
+        enable_sudo: bool,
+        #[serde(default)]
+        enable_polkit: bool,
     },
     GetHardwareStatus,
     DownloadModel { name: String },
@@ -63,7 +69,14 @@ pub enum DaemonResponse {
         liveness_enabled: bool,
         liveness_threshold: f32,
         ask_permission: bool,
-        retry_limit: u32,
         camera_path: Option<String>,
+        #[serde(default)]
+        enabled: bool,
+        #[serde(default)]
+        enable_login: bool,
+        #[serde(default)]
+        enable_sudo: bool,
+        #[serde(default)]
+        enable_polkit: bool,
     },
 }

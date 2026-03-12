@@ -224,9 +224,9 @@ pub unsafe extern "C" fn pam_sm_authenticate(
         service = service_cstr.to_string_lossy().into_owned().to_lowercase();
         
         // Skip if service specific toggle is OFF
-        if (service == "sudo" && !enable_sudo) || 
+        if ((service == "sudo" || service == "sudo-i" || service == "su") && !enable_sudo) || 
            ((service == "login" || service.contains("gdm") || service.contains("sddm") || service.contains("lightdm") || service.contains("dm")) && !enable_login) ||
-           (service.starts_with("polkit") && !enable_polkit) {
+           ((service.starts_with("polkit") || service == "pkexec") && !enable_polkit) {
             return PamReturnCode::AUTHINFO_UNAVAIL;
         }
 

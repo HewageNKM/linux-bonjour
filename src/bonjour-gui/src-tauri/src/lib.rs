@@ -112,7 +112,10 @@ async fn update_config(
     liveness_threshold: f32,
     ask_permission: bool,
     retry_limit: u32,
-    camera_path: Option<String>
+    camera_path: Option<String>,
+    enable_login: bool,
+    enable_sudo: bool,
+    enable_polkit: bool,
 ) -> Result<DaemonResponse, String> {
     let mut stream = UnixStream::connect(SOCKET_PATH).await.map_err(|e| format!("Daemon connection failed: {}", e))?;
     let request = DaemonRequest::UpdateConfig { 
@@ -123,7 +126,10 @@ async fn update_config(
         liveness_threshold,
         ask_permission,
         retry_limit,
-        camera_path 
+        camera_path,
+        enable_login,
+        enable_sudo,
+        enable_polkit,
     };
     let req_json = serde_json::to_string(&request).map_err(|e| e.to_string())?;
     stream.write_all(format!("{}\n", req_json).as_bytes()).await.map_err(|e| e.to_string())?;
