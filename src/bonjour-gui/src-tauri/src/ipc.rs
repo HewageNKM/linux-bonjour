@@ -22,6 +22,7 @@ pub enum DaemonRequest {
         ask_permission: bool,
         retry_limit: u32,
         camera_path: Option<String>,
+        active_model: Option<String>,
         #[serde(default)]
         enable_login: bool,
         #[serde(default)]
@@ -69,7 +70,9 @@ pub enum DaemonResponse {
         liveness_enabled: bool,
         liveness_threshold: f32,
         ask_permission: bool,
+        retry_limit: u32,
         camera_path: Option<String>,
+        active_model: String,
         #[serde(default)]
         enabled: bool,
         #[serde(default)]

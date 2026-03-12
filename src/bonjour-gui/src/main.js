@@ -343,9 +343,14 @@ getEl('refresh-logs').addEventListener('click', loadLogs);
 listen("biometric-status", (event) => {
     const resp = event.payload;
     if (resp.status === "SCANNING") {
+        // Scanning feedback (reduced noise)
+    } else if (resp.status === "INFO") {
         showToast(resp.msg, "info");
     } else if (resp.status === "SUCCESS") {
         showToast(`Authenticated: ${resp.user}`, "success");
+        updateSystemStatus();
+    } else if (resp.status === "ACTION_SUCCESS") {
+        showToast(resp.msg, "success");
         updateSystemStatus();
     } else if (resp.status === "FAILURE") {
         showToast(resp.reason, "error");
