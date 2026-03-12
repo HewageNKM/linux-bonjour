@@ -42,6 +42,9 @@ const statRetries = getEl('stat-retries');
 const statActiveModel = getEl('stat-active-model');
 const statLivenessMode = getEl('stat-liveness-mode');
 const statGroups = getEl('stat-groups');
+const btnStartService = getEl('btn-start-service');
+const btnStopService = getEl('btn-stop-service');
+const btnRestartService = getEl('btn-restart-service');
 const enrollmentModal = getEl('enrollment-modal');
 const enrollmentVideo = getEl('enrollment-video');
 const enrollmentInstruction = getEl('enrollment-instruction');
@@ -173,6 +176,21 @@ async function syncSettings() {
         console.error("Failed to sync settings:", err);
     }
 }
+// --- SERVICE MANAGEMENT ---
+async function handleServiceAction(action) {
+    try {
+        showToast(`${action.charAt(0).toUpperCase() + action.slice(1)}ing service...`, 'info');
+        await invoke("manage_service", { action });
+        showToast(`Service ${action}ed successfully!`);
+        setTimeout(updateSystemStatus, 1000);
+    } catch (err) {
+        showToast(`Service action failed: ${err}`, 'error');
+    }
+}
+
+if (btnStartService) btnStartService.addEventListener('click', () => handleServiceAction('start'));
+if (btnStopService) btnStopService.addEventListener('click', () => handleServiceAction('stop'));
+if (btnRestartService) btnRestartService.addEventListener('click', () => handleServiceAction('restart'));
 
 thresholdSlider.addEventListener('input', (e) => {
     const val = (e.target.value / 100).toFixed(2);

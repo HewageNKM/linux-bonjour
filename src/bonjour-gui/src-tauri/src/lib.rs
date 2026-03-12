@@ -228,6 +228,26 @@ async fn download_model(window: tauri::Window, name: String) -> Result<DaemonRes
     last_resp.ok_or_else(|| "No response from daemon".to_string())
 }
 
+#[tauri::command]
+async fn manage_service(action: String) -> Result<(), String> {
+    if !["start", "stop", "restart"].contains(&action.as_str()) {
+        return Err("Invalid service action".to_string());
+    }
+
+    let status = std::process::Command::new("pkexec")
+        .arg("systemctl")
+        .arg(&action)
+        .arg("linux-bonjour")
+        .status()
+        .map_err(|e| format!("Failed to execute pkexec: {}", e))?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("Service {} failed with status: {}", action, status))
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -244,7 +264,8 @@ pub fn run() {
             get_journal_logs,
             get_hardware_status,
             download_model,
-            check_groups
+            check_groups,
+            manage_service
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

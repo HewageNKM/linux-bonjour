@@ -234,6 +234,57 @@ h2 {
   gap: 8px;
 }
 
+.status-control-group {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.service-btns {
+  display: flex;
+  gap: 8px;
+}
+
+.service-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--glass-border);
+  background: var(--glass);
+  color: var(--text);
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  padding: 0;
+}
+
+.service-btn:hover {
+  background: var(--glass-hover);
+  transform: translateY(-2px);
+}
+
+.service-btn.start:hover {
+  color: var(--success);
+  border-color: var(--success);
+  box-shadow: 0 0 10px var(--success-glow);
+}
+
+.service-btn.stop:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+  box-shadow: 0 0 10px var(--danger-glow);
+}
+
+.service-btn.restart:hover {
+  color: var(--info);
+  border-color: var(--info);
+  box-shadow: 0 0 10px var(--info-glow);
+}
+
 .stat-label { font-size: 13px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
 .stat-value { font-size: 32px; font-weight: 800; }
 .stat-value.success { color: var(--success); }

@@ -43,7 +43,14 @@
           <div class="stats-grid">
             <div class="stat-card">
               <span class="stat-label">System Status</span>
-              <span id="stat-status" class="stat-value active-pulse">Active</span>
+              <div class="status-control-group">
+                <span id="stat-status" class="stat-value active-pulse">Active</span>
+                <div class="service-btns">
+                  <button id="btn-start-service" class="service-btn start" title="Start Service">▶</button>
+                  <button id="btn-stop-service" class="service-btn stop" title="Stop Service">■</button>
+                  <button id="btn-restart-service" class="service-btn restart" title="Restart Service">↻</button>
+                </div>
+              </div>
             </div>
             <div class="stat-card">
               <span class="stat-label">Enrolled Identities</span>
