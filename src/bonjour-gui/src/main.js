@@ -39,6 +39,9 @@ const statCamera = getEl('stat-camera');
 const statSecurity = getEl('stat-security');
 const statLiveness = getEl('stat-liveness');
 const statRetries = getEl('stat-retries');
+const statActiveModel = getEl('stat-active-model');
+const statLivenessMode = getEl('stat-liveness-mode');
+const statGroups = getEl('stat-groups');
 
 // --- NOTIFICATION SYSTEM ---
 function showToast(message, type = 'success') {
@@ -195,6 +198,7 @@ getEl('save-settings-btn').addEventListener('click', async () => {
             askPermission: ask_permission,
             retryLimit: retry_limit,
             cameraPath: camera_path,
+            activeModel: model,
             enableLogin: settingEnableLogin.checked,
             enableSudo: settingEnableSudo.checked,
             enablePolkit: settingEnablePolkit.checked
@@ -270,10 +274,12 @@ async function updateSystemStatus() {
             statTpm.innerText = hw.tpm;
             statAcceleration.innerText = hw.acceleration;
             statCamera.innerText = hw.camera;
+            if (statActiveModel) statActiveModel.innerText = hw.active_model;
             
             statTpm.className = `stat-value ${hw.tpm.includes('Active') ? 'success' : 'info'}`;
             statAcceleration.className = `stat-value ${hw.acceleration.includes('GPU') ? 'success' : 'info'}`;
             statCamera.className = `stat-value ${hw.camera.includes('IR') ? 'success' : 'info'}`;
+            if (statActiveModel) statActiveModel.className = 'stat-value success';
         }
         
         const cfg = await invoke("get_config");
@@ -285,19 +291,41 @@ async function updateSystemStatus() {
             statSecurity.className = `stat-value ${cfg.threshold >= 0.45 ? 'success' : 'info'}`;
             
             if (cfg.smile_required) {
-                statLiveness.innerText = "Active (Smile)";
+                statLiveness.innerText = "Enabled";
                 statLiveness.className = 'stat-value success';
+                if (statLivenessMode) statLivenessMode.innerText = "Active (Smile)";
             } else if (cfg.liveness_enabled) {
-                statLiveness.innerText = "Passive (LBP)";
+                statLiveness.innerText = "Enabled";
                 statLiveness.className = 'stat-value success';
+                if (statLivenessMode) statLivenessMode.innerText = "Passive (LBP)";
             } else {
                 statLiveness.innerText = "Disabled";
                 statLiveness.className = 'stat-value danger';
+                if (statLivenessMode) statLivenessMode.innerText = "N/A";
             }
+            if (statLivenessMode) statLivenessMode.className = cfg.liveness_enabled || cfg.smile_required ? 'stat-value success' : 'stat-value danger';
             
             statRetries.innerText = `${cfg.retry_limit} Attempts`;
             statRetries.className = 'stat-value info';
         }
+
+        // Security Groups check
+        try {
+            const groups = await invoke("check_groups");
+            const hasTpm = groups.includes('tss') || groups.includes('vtpm');
+            const hasVideo = groups.includes('video');
+            
+            let groupText = "";
+            if (hasTpm && hasVideo) groupText = "Ready (tss, video)";
+            else if (hasTpm) groupText = "Missing video group";
+            else if (hasVideo) groupText = "Missing tss group";
+            else groupText = "No access groups!";
+            
+            if (statGroups) {
+                statGroups.innerText = groupText;
+                statGroups.className = `stat-value ${hasTpm && hasVideo ? 'success' : 'danger'}`;
+            }
+        } catch (e) { console.error("Group check failed", e); }
         
         const idents = await invoke("list_identities");
         if (idents.status === "IDENTITY_LIST") {

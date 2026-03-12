@@ -62,6 +62,7 @@ pub enum DaemonResponse {
         tpm: String, 
         acceleration: String, 
         camera: String,
+        active_model: String,
         enabled: bool
     },
     DownloadProgress { 

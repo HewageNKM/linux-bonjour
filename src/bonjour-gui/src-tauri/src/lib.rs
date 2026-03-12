@@ -190,18 +190,42 @@ async fn get_camera_list() -> Result<DaemonResponse, String> {
 }
 
 #[tauri::command]
-async fn download_model(name: String) -> Result<DaemonResponse, String> {
+async fn check_groups() -> Result<Vec<String>, String> {
+    let output = std::process::Command::new("id")
+        .arg("-Gn")
+        .output()
+        .map_err(|e| e.to_string())?;
+    
+    let groups_str = String::from_utf8_lossy(&output.stdout);
+    let groups: Vec<String> = groups_str.split_whitespace().map(|s| s.to_string()).collect();
+    Ok(groups)
+}
+
+#[tauri::command]
+async fn download_model(window: tauri::Window, name: String) -> Result<DaemonResponse, String> {
     let mut stream = UnixStream::connect(SOCKET_PATH).await.map_err(|e| format!("Daemon connection failed: {}", e))?;
     let request = DaemonRequest::DownloadModel { name };
     let req_json = serde_json::to_string(&request).map_err(|e| e.to_string())?;
     stream.write_all(format!("{}\n", req_json).as_bytes()).await.map_err(|e| e.to_string())?;
     
     let mut reader = BufReader::new(stream).lines();
-    if let Ok(Some(line)) = reader.next_line().await {
+    let mut last_resp = None;
+    
+    while let Ok(Some(line)) = reader.next_line().await {
         let resp = serde_json::from_str::<DaemonResponse>(&line).map_err(|e| e.to_string())?;
-        return Ok(resp);
+        
+        // Emit intermediate statuses to frontend
+        let _ = window.emit("biometric-status", &resp);
+        
+        last_resp = Some(resp.clone());
+        
+        // Break on final responses
+        if matches!(resp, DaemonResponse::ActionSuccess { .. } | DaemonResponse::Failure { .. } | DaemonResponse::Success { .. }) {
+            break;
+        }
     }
-    Err("Failed to trigger model download".to_string())
+    
+    last_resp.ok_or_else(|| "No response from daemon".to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -219,7 +243,8 @@ pub fn run() {
             get_camera_list,
             get_journal_logs,
             get_hardware_status,
-            download_model
+            download_model,
+            check_groups
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

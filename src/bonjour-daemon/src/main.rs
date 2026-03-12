@@ -104,10 +104,11 @@ async fn main() -> Result<()> {
     // 1. Load Configuration
     let config = Arc::new(Mutex::new(DaemonConfig::load()));
 
-    // 2. Initialize Engine & Security
+// 2. Initialize Engine & Security
     println!("🤖 Initializing AI Engine...");
     let det_path = "/usr/share/linux-bonjour/models/det_10g.onnx";
     let active_model = config.lock().await.active_model.clone();
+    
     let rec_path = if active_model == "buffalo_l" {
         "/usr/share/linux-bonjour/models/arcface_w600k.onnx".to_string()
     } else {
@@ -115,11 +116,10 @@ async fn main() -> Result<()> {
     };
     
     let engine_res = InferenceEngine::new(det_path, &rec_path);
-    let engine = match engine_res {
+    let initial_engine = match engine_res {
         Ok(e) => Arc::new(Mutex::new(e)),
         Err(e) => {
             eprintln!("⚠️ AI Models not found: {}. Fallback to buffalo_l.", e);
-            // Try fallback
             let fb_path = "/usr/share/linux-bonjour/models/arcface_w600k.onnx";
             match InferenceEngine::new(det_path, fb_path) {
                 Ok(e) => Arc::new(Mutex::new(e)),
@@ -150,26 +150,46 @@ async fn main() -> Result<()> {
         }
     };
 
-    let signature_store = Arc::new(SignatureStore::new("/var/lib/linux-bonjour/signatures", provider)?);
+    let initial_store = Arc::new(SignatureStore::new(&active_model, provider.clone())?);
+    
+    // 2.5 Encapsulate Context
+    pub struct BiometricContext {
+        pub engine: Arc<Mutex<InferenceEngine>>,
+        pub store: Arc<SignatureStore>,
+        pub model_name: String,
+    }
+
+    let context = Arc::new(Mutex::new(BiometricContext {
+        engine: initial_engine,
+        store: initial_store,
+        model_name: active_model,
+    }));
+
     let system_enabled = Arc::new(AtomicBool::new(true));
     
-    let acceleration = if engine.lock().await.has_gpu() { "Active (GPU Accelerator)" } else { "Active (CPU/OpenVINO)" }.to_string();
+    let initial_engine = {
+        let ctx = context.lock().await;
+        Arc::clone(&ctx.engine)
+    };
+    let initial_engine_locked = initial_engine.lock().await;
+    let acceleration = if initial_engine_locked.has_gpu() { "Active (GPU Accelerator)" } else { "Active (CPU/OpenVINO)" }.to_string();
+    drop(initial_engine_locked);
 
     println!("✅ AI Models and Secure Storage ready.");
 
     // 3. Start UDS Server
     let server = UdsServer::new("/run/linux-bonjour/daemon.sock");
     
-    let engine_cloned = Arc::clone(&engine);
-    let store_cloned = Arc::clone(&signature_store);
+    let context_cloned = Arc::clone(&context);
+    let provider_cloned = Arc::clone(&provider);
     let enabled_cloned = Arc::clone(&system_enabled);
     let config_cloned = Arc::clone(&config);
     let accel_cloned = acceleration.clone();
     let tpm_state_cloned = Arc::clone(&tpm_active_clone);
 
     server.start(move |req, tx| {
-        let engine = Arc::clone(&engine_cloned);
-        let store = Arc::clone(&store_cloned);
+        let context = Arc::clone(&context_cloned);
+        let provider = Arc::clone(&provider_cloned);
         let enabled = Arc::clone(&enabled_cloned);
         let config = Arc::clone(&config_cloned);
         let accel_locked = accel_cloned.clone();
@@ -187,13 +207,15 @@ async fn main() -> Result<()> {
                     let _ = tx.send(DaemonResponse::Status { enabled: is_enabled }).await;
                 },
                 DaemonRequest::ListIdentities => {
-                    match store.list_identities() {
+                    let ctx = context.lock().await;
+                    match ctx.store.list_identities() {
                         Ok(users) => { let _ = tx.send(DaemonResponse::IdentityList { users }).await; },
                         Err(e) => { let _ = tx.send(DaemonResponse::Failure { reason: e.to_string() }).await; },
                     }
                 },
                 DaemonRequest::DeleteIdentity { user } => {
-                    match store.delete_identity(&user) {
+                    let ctx = context.lock().await;
+                    match ctx.store.delete_identity(&user) {
                         Ok(_) => { let _ = tx.send(DaemonResponse::ActionSuccess { msg: format!("Identity '{}' deleted", user) }).await; },
                         Err(e) => { let _ = tx.send(DaemonResponse::Failure { reason: e.to_string() }).await; },
                     }
@@ -233,11 +255,15 @@ async fn main() -> Result<()> {
                             };
 
                             if std::path::Path::new(&rec_path).exists() {
-                                let mut engine_lock = engine.lock().await;
                                 if let Ok(new_engine) = InferenceEngine::new(det_path, &rec_path) {
-                                    *engine_lock = new_engine;
-                                    cfg.active_model = new_model;
-                                    println!("✅ AI Engine hot-swapped successfully.");
+                                    if let Ok(new_store) = SignatureStore::new(&new_model, provider.clone()) {
+                                        let mut ctx = context.lock().await;
+                                        ctx.engine = Arc::new(Mutex::new(new_engine));
+                                        ctx.store = Arc::new(new_store);
+                                        ctx.model_name = new_model.clone();
+                                        cfg.active_model = new_model;
+                                        println!("✅ Biometric Context hot-swapped successfully (Model + Signatures).");
+                                    }
                                 } else {
                                     eprintln!("❌ Failed to initialize new model engine.");
                                 }
@@ -272,10 +298,12 @@ async fn main() -> Result<()> {
                         "Software Fallback (Active)".to_string()
                     };
                     
+                    let active_model = config.lock().await.active_model.clone();
                     let _ = tx.send(DaemonResponse::HardwareStatus {
                         tpm: tpm_string,
                         acceleration: accel_locked,
                         camera: camera_type,
+                        active_model,
                         enabled: enabled.load(Ordering::SeqCst),
                     }).await;
                 },
@@ -292,6 +320,10 @@ async fn main() -> Result<()> {
 
                     let name_cloned = name.clone();
                     let tx_cloned = tx.clone();
+                    let context_cloned = Arc::clone(&context);
+                    let provider_cloned = Arc::clone(&provider);
+                    let config_cloned = Arc::clone(&config);
+                    
                     tokio::spawn(async move {
                         let target_path = format!("/usr/share/linux-bonjour/models/{}", name_cloned);
                         let _ = std::fs::create_dir_all(&target_path);
@@ -337,6 +369,39 @@ async fn main() -> Result<()> {
                                         }
 
                                         let _ = tx_cloned.send(DaemonResponse::ActionSuccess { msg: format!("Model {} ready", name_cloned) }).await;
+                                        
+                                        // SWAP CONTEXT ATOMICALLY
+                                        let rec_path = format!("{}/arcface_w600k.onnx", target_path);
+                                        if let Ok(new_engine) = InferenceEngine::new("/usr/share/linux-bonjour/models/det_10g.onnx", &rec_path) {
+                                            if let Ok(new_store) = SignatureStore::new(&name_cloned, provider_cloned.clone()) {
+                                                let mut ctx = context_cloned.lock().await;
+                                                ctx.engine = Arc::new(Mutex::new(new_engine));
+                                                ctx.store = Arc::new(new_store);
+                                                ctx.model_name = name_cloned.clone();
+                                                
+                                                let mut cfg = config_cloned.lock().await;
+                                                cfg.active_model = name_cloned.clone();
+                                                let _ = cfg.save();
+                                                println!("✅ Biometric Context swapped to new model: {}", name_cloned);
+                                            }
+                                        } else {
+                                            eprintln!("❌ Failed to initialize newly downloaded model: {}", rec_path);
+                                        }
+
+                                        // Final absolute cleanup: remove anything not .onnx
+                                        if let Ok(entries) = std::fs::read_dir(&target_path) {
+                                            for entry in entries.flatten() {
+                                                let path = entry.path();
+                                                if path.is_file() {
+                                                    if let Some(ext) = path.extension() {
+                                                        let ext_str = ext.to_string_lossy().to_lowercase();
+                                                        if ext_str != "onnx" && ext_str != "engine" {
+                                                            let _ = std::fs::remove_file(&path);
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
                                         return;
                                     }
                                 }
@@ -355,7 +420,7 @@ async fn main() -> Result<()> {
                 },
                 DaemonRequest::GetConfig => {
                     let cfg = config.lock().await;
-                    let has_face_data = !store.list_identities().unwrap_or_default().is_empty();
+                    let has_face_data = !context.lock().await.store.list_identities().unwrap_or_default().is_empty();
 
                     let _ = tx.send(DaemonResponse::Config {
                         threshold: cfg.threshold,
@@ -393,6 +458,11 @@ async fn main() -> Result<()> {
 
                     println!("🔍 IPC: Verification request for user: {}", user);
                     
+                    let (engine, store) = {
+                        let ctx = context.lock().await;
+                        (Arc::clone(&ctx.engine), Arc::clone(&ctx.store))
+                    };
+
                     let camera_path_override = cfg.camera_path.clone();
                     let threshold = cfg.threshold;
                     let liveness_threshold = cfg.liveness_threshold;
@@ -489,6 +559,11 @@ async fn main() -> Result<()> {
                     let _ = tx.send(DaemonResponse::Failure { reason: format!("Timeout: {}", last_error) }).await;
                 },
                 DaemonRequest::Enroll { user } => {
+                    let (engine, store) = {
+                        let ctx = context.lock().await;
+                        (Arc::clone(&ctx.engine), Arc::clone(&ctx.store))
+                    };
+
                     let camera_path_override = {
                         let cfg = config.lock().await;
                         cfg.camera_path.clone()
