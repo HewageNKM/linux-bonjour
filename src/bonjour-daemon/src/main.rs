@@ -147,7 +147,7 @@ async fn main() -> Result<()> {
     let accel_cloned = acceleration.clone();
     let tpm_state_cloned = Arc::clone(&tpm_active_clone);
 
-    server.start(move |req| {
+    server.start(move |req, tx| {
         let engine = Arc::clone(&engine_cloned);
         let store = Arc::clone(&store_cloned);
         let enabled = Arc::clone(&enabled_cloned);
@@ -160,22 +160,22 @@ async fn main() -> Result<()> {
                 DaemonRequest::SetEnabled { enabled: val } => {
                     enabled.store(val, Ordering::SeqCst);
                     println!("⚙️ System {}", if val { "ENABLED" } else { "DISABLED" });
-                    vec![DaemonResponse::Status { enabled: val }]
+                    let _ = tx.send(DaemonResponse::Status { enabled: val }).await;
                 },
                 DaemonRequest::GetStatus => {
                     let is_enabled = enabled.load(Ordering::SeqCst);
-                    vec![DaemonResponse::Status { enabled: is_enabled }]
+                    let _ = tx.send(DaemonResponse::Status { enabled: is_enabled }).await;
                 },
                 DaemonRequest::ListIdentities => {
                     match store.list_identities() {
-                        Ok(users) => vec![DaemonResponse::IdentityList { users }],
-                        Err(e) => vec![DaemonResponse::Failure { reason: e.to_string() }],
+                        Ok(users) => { let _ = tx.send(DaemonResponse::IdentityList { users }).await; },
+                        Err(e) => { let _ = tx.send(DaemonResponse::Failure { reason: e.to_string() }).await; },
                     }
                 },
                 DaemonRequest::DeleteIdentity { user } => {
                     match store.delete_identity(&user) {
-                        Ok(_) => vec![DaemonResponse::ActionSuccess { msg: format!("Identity '{}' deleted", user) }],
-                        Err(e) => vec![DaemonResponse::Failure { reason: e.to_string() }],
+                        Ok(_) => { let _ = tx.send(DaemonResponse::ActionSuccess { msg: format!("Identity '{}' deleted", user) }).await; },
+                        Err(e) => { let _ = tx.send(DaemonResponse::Failure { reason: e.to_string() }).await; },
                     }
                 },
                 DaemonRequest::UpdateConfig { threshold, smile_required, autocapture, liveness_enabled, liveness_threshold, ask_permission, retry_limit, camera_path } => {
@@ -194,7 +194,7 @@ async fn main() -> Result<()> {
                     }
                     
                     println!("⚙️ Configuration updated and persisted.");
-                    vec![DaemonResponse::ActionSuccess { msg: "Configuration updated".to_string() }]
+                    let _ = tx.send(DaemonResponse::ActionSuccess { msg: "Configuration updated".to_string() }).await;
                 },
                 DaemonRequest::GetHardwareStatus => {
                     let devices = nokhwa::query(nokhwa::utils::ApiBackend::Video4Linux).unwrap_or_default();
@@ -210,12 +210,12 @@ async fn main() -> Result<()> {
                         "Software Fallback (Active)".to_string()
                     };
                     
-                    vec![DaemonResponse::HardwareStatus {
+                    let _ = tx.send(DaemonResponse::HardwareStatus {
                         tpm: tpm_string,
                         acceleration: accel_locked,
                         camera: camera_type,
                         enabled: enabled.load(Ordering::SeqCst),
-                    }]
+                    }).await;
                 },
                 DaemonRequest::DownloadModel { name } => {
                     let model_url = match name.as_str() {
@@ -223,7 +223,8 @@ async fn main() -> Result<()> {
                         "buffalo_s" => "https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_s.zip",
                         "antelope" => "https://github.com/deepinsight/insightface/releases/download/v0.7/antelopev2.zip",
                         _ => {
-                            return vec![DaemonResponse::Failure { reason: format!("Unknown model: {}", name) }];
+                            let _ = tx.send(DaemonResponse::Failure { reason: format!("Unknown model: {}", name) }).await;
+                            return;
                         }
                     };
 
@@ -250,7 +251,6 @@ async fn main() -> Result<()> {
                             
                         let _ = std::fs::remove_file(format!("{}/weights.zip", target_path));
 
-                        // Rename Insightface defaults back to the expected names if they exist
                         if std::path::Path::new(&format!("{}/w600k_r50.onnx", target_path)).exists() {
                             let _ = std::fs::rename(
                                 format!("{}/w600k_r50.onnx", target_path),
@@ -259,7 +259,7 @@ async fn main() -> Result<()> {
                         }
                     });
 
-                    vec![DaemonResponse::ActionSuccess { msg: format!("Model {} download started in background.", name) }]
+                    let _ = tx.send(DaemonResponse::ActionSuccess { msg: format!("Model {} download started in background.", name) }).await;
                 },
                 DaemonRequest::GetCameraList => {
                     let devices = nokhwa::query(nokhwa::utils::ApiBackend::Video4Linux).unwrap_or_default();
@@ -267,11 +267,11 @@ async fn main() -> Result<()> {
                         name: d.human_name(),
                         path: d.index().to_string(),
                     }).collect();
-                    vec![DaemonResponse::CameraList { devices: list }]
+                    let _ = tx.send(DaemonResponse::CameraList { devices: list }).await;
                 },
                 DaemonRequest::GetConfig => {
                     let cfg = config.lock().await;
-                    vec![DaemonResponse::Config {
+                    let _ = tx.send(DaemonResponse::Config {
                         threshold: cfg.threshold,
                         smile_required: cfg.smile_required,
                         autocapture: cfg.autocapture,
@@ -280,113 +280,117 @@ async fn main() -> Result<()> {
                         ask_permission: cfg.ask_permission,
                         retry_limit: cfg.retry_limit,
                         camera_path: cfg.camera_path.clone(),
-                    }]
+                    }).await;
                 },
                 DaemonRequest::Verify { user, bypass_consent } => {
                     let cfg = config.lock().await;
                     
                     if !enabled.load(Ordering::SeqCst) {
                         println!("🚫 [Bonjour] System is globally DISABLED. Skipping verification.");
-                        return vec![DaemonResponse::Failure { reason: "System is globally disabled".to_string() }];
+                        let _ = tx.send(DaemonResponse::Failure { reason: "System is globally disabled".to_string() }).await;
+                        return;
                     }
 
                     if !bypass_consent && cfg.ask_permission {
                         if !run_zenity_approval(&user) {
                             println!("🚫 Authorization denied or Zenity failed for user: {}", user);
-                            return vec![DaemonResponse::Info { msg: "CONSENT_REQUIRED".to_string() }];
+                            let _ = tx.send(DaemonResponse::Info { msg: "CONSENT_REQUIRED".to_string() }).await;
+                            return;
                         }
                     }
 
                     println!("🔍 IPC: Verification request for user: {}", user);
                     
                     let camera_path_override = cfg.camera_path.clone();
-                    let capture_result: Result<DynamicImage> = (|| {
-                        let devices = nokhwa::query(nokhwa::utils::ApiBackend::Video4Linux)?;
-                        if devices.is_empty() { anyhow::bail!("No camera found"); }
-                        
-                        let mut sorted_devices = devices.clone();
-                        sorted_devices.sort_by_key(|d| {
-                            if let Some(ref path) = camera_path_override {
-                                if d.human_name() == *path || d.index().to_string() == *path {
-                                    return 0;
-                                }
-                            }
-                            let name = d.human_name().to_lowercase();
-                            if name.contains("ir") || name.contains("infrared") { 1 } else { 2 }
-                        });
+                    let threshold = cfg.threshold;
+                    let liveness_threshold = cfg.liveness_threshold;
+                    let smile_required = cfg.smile_required;
 
-                        let mut last_err = anyhow::anyhow!("No working camera found");
-                        for dev in sorted_devices {
-                            let format_strategies = vec![RequestedFormatType::AbsoluteHighestResolution, RequestedFormatType::None];
-                            for strategy in format_strategies {
-                                let format = RequestedFormat::new::<RgbFormat>(strategy);
-                                match Camera::with_backend(dev.index().clone(), format, nokhwa::utils::ApiBackend::Video4Linux) {
-                                    Ok(mut camera) => {
+                    // Search Loop: Try to recognize for up to 3 seconds
+                    let start_time = std::time::Instant::now();
+                    let timeout = std::time::Duration::from_secs(3);
+                    let mut last_error = "No face detected".to_string();
+
+                    while start_time.elapsed() < timeout {
+                        // Send real-time scanning feedback
+                        let _ = tx.send(DaemonResponse::Scanning { 
+                            msg: "Scanning...".to_string() 
+                        }).await;
+
+                        let capture_result: Result<DynamicImage> = (|| {
+                            let devices = nokhwa::query(nokhwa::utils::ApiBackend::Video4Linux)?;
+                            if devices.is_empty() { anyhow::bail!("No camera found"); }
+                            
+                            let mut sorted_devices = devices.clone();
+                            sorted_devices.sort_by_key(|d| {
+                                if let Some(ref path) = camera_path_override {
+                                    if d.human_name() == *path || d.index().to_string() == *path {
+                                        return 0;
+                                    }
+                                }
+                                let name = d.human_name().to_lowercase();
+                                if name.contains("ir") || name.contains("infrared") { 1 } else { 2 }
+                            });
+
+                            for dev in sorted_devices {
+                                let format_strategies = vec![RequestedFormatType::AbsoluteHighestResolution, RequestedFormatType::None];
+                                for strategy in format_strategies {
+                                    let format = RequestedFormat::new::<RgbFormat>(strategy);
+                                    if let Ok(mut camera) = Camera::with_backend(dev.index().clone(), format, nokhwa::utils::ApiBackend::Video4Linux) {
                                         if camera.open_stream().is_ok() {
-                                            for _ in 0..5 { let _ = camera.frame(); std::thread::sleep(std::time::Duration::from_millis(100)); }
-                                            match camera.frame() {
-                                                Ok(frame) => {
-                                                    let dyn_img = frame.decode_image::<RgbFormat>()?;
-                                                    let _ = camera.stop_stream();
-                                                    println!("✅ Using Camera: {}", dev.human_name());
-                                                    return Ok(DynamicImage::ImageRgb8(dyn_img));
-                                                },
-                                                Err(e) => {
-                                                    let _ = camera.stop_stream();
-                                                    last_err = e.into();
-                                                }
+                                            for _ in 0..2 { let _ = camera.frame(); }
+                                            if let Ok(frame) = camera.frame() {
+                                                let dyn_img = frame.decode_image::<RgbFormat>()?;
+                                                let _ = camera.stop_stream();
+                                                return Ok(DynamicImage::ImageRgb8(dyn_img));
                                             }
                                         }
-                                    },
-                                    Err(e) => last_err = e.into(),
+                                    }
                                 }
                             }
-                        }
-                        Err(last_err)
-                    })();
+                            Err(anyhow::anyhow!("Capture failed"))
+                        })();
 
-                    match capture_result {
-                        Ok(dyn_img) => {
-                            let mut engine_lock = engine.lock().await;
-                            match engine_lock.detect_faces(&dyn_img) {
-                                Ok(detections) => {
+                        match capture_result {
+                            Ok(dyn_img) => {
+                                let mut engine_lock = engine.lock().await;
+                                if let Ok(detections) = engine_lock.detect_faces(&dyn_img) {
                                     if detections.is_empty() {
-                                        vec![DaemonResponse::Failure { reason: "No face detected".to_string() }]
+                                        last_error = "No face detected".to_string();
                                     } else {
                                         let aligned = engine_lock.align_face(&dyn_img, &detections[0].landmarks);
-                                        match engine_lock.get_face_embedding(&aligned) {
-                                            Ok(embedding) => {
-                                                match store.load_signature(&user) {
-                                                    Ok(saved_embedding) => {
-                                                        let score = SignatureStore::cosine_similarity(&embedding, &saved_embedding);
-                                                        let liveness_score = detections[0].liveness_score;
-                                                        let liveness_threshold = cfg.liveness_threshold;
-                                                        
-                                                        if score > cfg.threshold {
-                                                            if !cfg.smile_required || liveness_score > liveness_threshold {
-                                                                vec![DaemonResponse::Success { user: user.clone() }]
-                                                            } else {
-                                                                vec![DaemonResponse::Failure { reason: format!("Liveness failed ({:.2})", liveness_score) }]
-                                                            }
-                                                        } else {
-                                                            vec![DaemonResponse::Failure { reason: format!("Match failed (score: {:.2})", score) }]
-                                                        }
-                                                    },
-                                                    Err(e) => {
-                                                        println!("⚠️ [Bonjour] No biometric signature for '{}'. Defaulting to system password.", user);
-                                                        vec![DaemonResponse::Failure { reason: format!("User '{}' not found: {}", user, e) }]
-                                                    },
+                                        if let Ok(embedding) = engine_lock.get_face_embedding(&aligned) {
+                                            if let Ok(saved_embedding) = store.load_signature(&user) {
+                                                let score = SignatureStore::cosine_similarity(&embedding, &saved_embedding);
+                                                let liveness_score = detections[0].liveness_score;
+                                                
+                                                if score > threshold {
+                                                    if !smile_required || liveness_score > liveness_threshold {
+                                                        println!("✅ [Bonjour] Success: {}", user);
+                                                        let _ = tx.send(DaemonResponse::Success { user: user.clone() }).await;
+                                                        return;
+                                                    } else {
+                                                        last_error = format!("Liveness failed ({:.2})", liveness_score);
+                                                    }
+                                                } else {
+                                                    last_error = format!("Match failed (score: {:.2})", score);
                                                 }
-                                            },
-                                            Err(e) => vec![DaemonResponse::Failure { reason: e.to_string() }],
+                                            } else {
+                                                println!("⚠️ [Bonjour] No signature for {}", user);
+                                                let _ = tx.send(DaemonResponse::Failure { reason: format!("User '{}' not found", user) }).await;
+                                                return;
+                                            }
                                         }
                                     }
-                                },
-                                Err(e) => vec![DaemonResponse::Failure { reason: e.to_string() }],
-                            }
-                        },
-                        Err(e) => vec![DaemonResponse::Failure { reason: e.to_string() }],
+                                }
+                            },
+                            Err(e) => last_error = e.to_string(),
+                        }
+                        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
                     }
+
+                    println!("❌ [Bonjour] Verification timeout");
+                    let _ = tx.send(DaemonResponse::Failure { reason: format!("Timeout: {}", last_error) }).await;
                 },
                 DaemonRequest::Enroll { user } => {
                     let camera_path_override = {
@@ -434,24 +438,24 @@ async fn main() -> Result<()> {
                             match engine_lock.detect_faces(&dyn_img) {
                                 Ok(detections) => {
                                     if detections.is_empty() {
-                                        vec![DaemonResponse::Failure { reason: "No face detected".to_string() }]
+                                        let _ = tx.send(DaemonResponse::Failure { reason: "No face detected".to_string() }).await;
                                     } else {
                                         let aligned = engine_lock.align_face(&dyn_img, &detections[0].landmarks);
                                         match engine_lock.get_face_embedding(&aligned) {
                                             Ok(embedding) => {
                                                 match store.save_signature(&user, &embedding) {
-                                                    Ok(_) => vec![DaemonResponse::Success { user: user.clone() }],
-                                                    Err(e) => vec![DaemonResponse::Failure { reason: e.to_string() }],
+                                                    Ok(_) => { let _ = tx.send(DaemonResponse::Success { user: user.clone() }).await; },
+                                                    Err(e) => { let _ = tx.send(DaemonResponse::Failure { reason: e.to_string() }).await; },
                                                 }
                                             },
-                                            Err(e) => vec![DaemonResponse::Failure { reason: e.to_string() }],
+                                            Err(e) => { let _ = tx.send(DaemonResponse::Failure { reason: e.to_string() }).await; },
                                         }
                                     }
                                 },
-                                Err(e) => vec![DaemonResponse::Failure { reason: e.to_string() }],
+                                Err(e) => { let _ = tx.send(DaemonResponse::Failure { reason: e.to_string() }).await; },
                             }
                         },
-                        Err(e) => vec![DaemonResponse::Failure { reason: e.to_string() }],
+                        Err(e) => { let _ = tx.send(DaemonResponse::Failure { reason: e.to_string() }).await; },
                     }
                 },
             }
