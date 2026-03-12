@@ -16,7 +16,6 @@ use onnx_utils::InferenceEngine;
 use signature_utils::SignatureStore;
 use ipc_utils::{UdsServer, DaemonRequest, DaemonResponse, CameraInfo};
 use security_utils::{EncryptionProvider, PlainProvider, SoftwareProvider, TpmProvider};
-
 #[derive(Serialize, Deserialize, Clone)]
 struct DaemonConfig {
     threshold: f32,
@@ -27,6 +26,9 @@ struct DaemonConfig {
     ask_permission: bool,
     retry_limit: u32,
     camera_path: Option<String>,
+    enable_login: bool,
+    enable_sudo: bool,
+    enable_polkit: bool,
 }
 
 impl DaemonConfig {
@@ -40,6 +42,9 @@ impl DaemonConfig {
             ask_permission: false,
             retry_limit: 3,
             camera_path: None,
+            enable_login: true,
+            enable_sudo: true,
+            enable_polkit: true,
         }
     }
 
@@ -178,7 +183,19 @@ async fn main() -> Result<()> {
                         Err(e) => { let _ = tx.send(DaemonResponse::Failure { reason: e.to_string() }).await; },
                     }
                 },
-                DaemonRequest::UpdateConfig { threshold, smile_required, autocapture, liveness_enabled, liveness_threshold, ask_permission, retry_limit, camera_path } => {
+                DaemonRequest::UpdateConfig { 
+                    threshold, 
+                    smile_required, 
+                    autocapture, 
+                    liveness_enabled, 
+                    liveness_threshold, 
+                    ask_permission, 
+                    retry_limit: limit, 
+                    camera_path: cam,
+                    enable_login,
+                    enable_sudo,
+                    enable_polkit
+                } => {
                     let mut cfg = config.lock().await;
                     cfg.threshold = threshold;
                     cfg.smile_required = smile_required;
@@ -186,8 +203,11 @@ async fn main() -> Result<()> {
                     cfg.liveness_enabled = liveness_enabled;
                     cfg.liveness_threshold = liveness_threshold;
                     cfg.ask_permission = ask_permission;
-                    cfg.retry_limit = retry_limit;
-                    cfg.camera_path = camera_path;
+                    cfg.retry_limit = limit;
+                    cfg.camera_path = cam;
+                    cfg.enable_login = enable_login;
+                    cfg.enable_sudo = enable_sudo;
+                    cfg.enable_polkit = enable_polkit;
                     
                     if let Err(e) = cfg.save() {
                         eprintln!("❌ Failed to save configuration: {}", e);
@@ -271,7 +291,7 @@ async fn main() -> Result<()> {
                 },
                 DaemonRequest::GetConfig => {
                     let cfg = config.lock().await;
-                    let has_face_data = if let Ok(sigs) = SignatureStore::new("/var/lib/linux-bonjour", EncryptionProvider::Plain(PlainProvider)) {
+                    let has_face_data = if let Ok(sigs) = SignatureStore::new("buffalo_l", Arc::new(PlainProvider)) {
                         !sigs.list_identities().unwrap_or_default().is_empty()
                     } else {
                         false
@@ -288,6 +308,9 @@ async fn main() -> Result<()> {
                         camera_path: cfg.camera_path.clone(),
                         enabled: enabled.load(Ordering::SeqCst),
                         has_face_data,
+                        enable_login: cfg.enable_login,
+                        enable_sudo: cfg.enable_sudo,
+                        enable_polkit: cfg.enable_polkit,
                     }).await;
                 },
                 DaemonRequest::Verify { user, bypass_consent } => {

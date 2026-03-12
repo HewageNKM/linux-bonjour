@@ -23,6 +23,9 @@ const settingAskPermission = getEl('setting-ask-permission');
 const settingRetryLimit = getEl('setting-retry-limit');
 const settingModel = getEl('setting-model');
 const settingCamera = getEl('setting-camera');
+const settingEnableLogin = getEl('setting-enable-login');
+const settingEnableSudo = getEl('setting-enable-sudo');
+const settingEnablePolkit = getEl('setting-enable-polkit');
 const toastContainer = getEl('toast-container');
 const usernameInput = getEl('username');
 const enrollBtn = getEl('enroll-btn');
@@ -124,6 +127,11 @@ async function syncSettings() {
             settingAskPermission.checked = cfg.ask_permission;
             settingRetryLimit.value = cfg.retry_limit;
             
+            settingSystemEnabled.checked = cfg.enabled;
+            settingEnableLogin.checked = cfg.enable_login;
+            settingEnableSudo.checked = cfg.enable_sudo;
+            settingEnablePolkit.checked = cfg.enable_polkit;
+
             // Populate Camera List
             const cameras = await invoke("get_camera_list");
             if (cameras.status === "CAMERA_LIST") {
@@ -186,7 +194,10 @@ getEl('save-settings-btn').addEventListener('click', async () => {
             livenessThreshold: liveness_threshold,
             askPermission: ask_permission,
             retryLimit: retry_limit,
-            cameraPath: camera_path
+            cameraPath: camera_path,
+            enableLogin: settingEnableLogin.checked,
+            enableSudo: settingEnableSudo.checked,
+            enablePolkit: settingEnablePolkit.checked
         });
         
         showToast("Configuration saved successfully!");

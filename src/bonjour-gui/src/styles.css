@@ -177,6 +177,32 @@ h2 {
   margin-top: 24px;
 }
 
+.settings-section-title {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--primary);
+  margin: 40px 0 20px 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.settings-section-title::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(to right, rgba(99, 102, 241, 0.3), transparent);
+}
+
+.setting-item.granular {
+  padding-left: 24px;
+  border-left: 2px solid rgba(255, 255, 255, 0.05);
+  margin-top: -8px;
+  background: rgba(255, 255, 255, 0.01);
+}
+
 /* Common UI Elements */
 .card {
   background: var(--glass);

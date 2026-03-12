@@ -107,6 +107,8 @@
       <div id="view-settings" class="view">
         <h2 class="view-title">Settings</h2>
         <div class="settings-group">
+          
+          <h3 class="settings-section-title">System Integration</h3>
           <div class="setting-item" style="border-left: 4px solid var(--info);">
             <div class="setting-info">
               <span class="setting-name">Global System Enable</span>
@@ -117,6 +119,41 @@
               <span class="switch-slider"></span>
             </label>
           </div>
+
+          <div class="setting-item granular">
+            <div class="setting-info">
+              <span class="setting-name">Login Authentication</span>
+              <span class="setting-desc">Use Face ID for system login (GDM/SDDM)</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="setting-enable-login" checked>
+              <span class="switch-slider"></span>
+            </label>
+          </div>
+
+          <div class="setting-item granular">
+            <div class="setting-info">
+              <span class="setting-name">Sudo (Terminal)</span>
+              <span class="setting-desc">Use Face ID for terminal sudo commands</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="setting-enable-sudo" checked>
+              <span class="switch-slider"></span>
+            </label>
+          </div>
+
+          <div class="setting-item granular">
+            <div class="setting-info">
+              <span class="setting-name">Polkit (App Dialogs)</span>
+              <span class="setting-desc">Use Face ID for administrative app prompts</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="setting-enable-polkit" checked>
+              <span class="switch-slider"></span>
+            </label>
+          </div>
+
+          <h3 class="settings-section-title">Security Profile</h3>
           <div class="setting-item">
             <div class="setting-info">
               <span class="setting-name">Recognition Threshold</span>
@@ -130,30 +167,8 @@
           
           <div class="setting-item">
             <div class="setting-info">
-              <span class="setting-name">Smile Required</span>
-              <span class="setting-desc">Require engagement landmarks (Liveness)</span>
-            </div>
-            <label class="switch">
-              <input type="checkbox" id="setting-smile" checked>
-              <span class="switch-slider"></span>
-            </label>
-          </div>
-
-          <div class="setting-item">
-            <div class="setting-info">
-              <span class="setting-name">Auto-Capture</span>
-              <span class="setting-desc">Automatically capture frame when face is steady</span>
-            </div>
-            <label class="switch">
-              <input type="checkbox" id="setting-autocapture">
-              <span class="switch-slider"></span>
-            </label>
-          </div>
-
-          <div class="setting-item">
-            <div class="setting-info">
               <span class="setting-name">Passive Liveness</span>
-              <span class="setting-desc">Enable anti-spoofing checks</span>
+              <span class="setting-desc">Enable anti-spoofing checks (LBP)</span>
             </div>
             <label class="switch">
               <input type="checkbox" id="setting-liveness" checked>
@@ -172,33 +187,21 @@
             </div>
           </div>
 
-
           <div class="setting-item">
             <div class="setting-info">
-              <span class="setting-name">Require Confirmation</span>
-              <span class="setting-desc">Ask for permission with an authorize dialog before identifying</span>
+              <span class="setting-name">Smile Required</span>
+              <span class="setting-desc">Require engagement landmarks (Active Liveness)</span>
             </div>
             <label class="switch">
-              <input type="checkbox" id="setting-ask-permission">
+              <input type="checkbox" id="setting-smile" checked>
               <span class="switch-slider"></span>
             </label>
           </div>
 
           <div class="setting-item">
             <div class="setting-info">
-              <span class="setting-name">Detection Camera</span>
-              <span class="setting-desc">Primary camera device for face recognition</span>
-            </div>
-            <select id="setting-camera" class="glass-input select">
-              <option value="auto">Auto-Detect (Recommended)</option>
-              <!-- Populated by JS -->
-            </select>
-          </div>
-
-          <div class="setting-item">
-            <div class="setting-info">
               <span class="setting-name">Retry Limit</span>
-              <span class="setting-desc">Maximum number of recognition attempts before fallback</span>
+              <span class="setting-desc">Attempts before password fallback</span>
             </div>
             <select id="setting-retry-limit" class="glass-input select">
               <option value="1">1 Attempt</option>
@@ -210,14 +213,48 @@
 
           <div class="setting-item">
             <div class="setting-info">
+              <span class="setting-name">Require Confirmation</span>
+              <span class="setting-desc">Ask for permission before identifying</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="setting-ask-permission">
+              <span class="switch-slider"></span>
+            </label>
+          </div>
+
+          <h3 class="settings-section-title">Hardware Configuration</h3>
+          <div class="setting-item">
+            <div class="setting-info">
+              <span class="setting-name">Detection Camera</span>
+              <span class="setting-desc">Primary device for face recognition</span>
+            </div>
+            <select id="setting-camera" class="glass-input select">
+              <option value="auto">Auto-Detect (Recommended)</option>
+              <!-- Populated by JS -->
+            </select>
+          </div>
+
+          <div class="setting-item">
+            <div class="setting-info">
               <span class="setting-name">Active Model</span>
-              <span class="setting-desc">Face detection & recognition model</span>
+              <span class="setting-desc">Inference engine for recognition</span>
             </div>
             <select id="setting-model" class="glass-input select">
               <option value="buffalo_l">Buffalo L (Default)</option>
               <option value="buffalo_s">Buffalo S (Lightweight)</option>
               <option value="antelope">Antelope (High Accuracy)</option>
             </select>
+          </div>
+
+          <div class="setting-item">
+            <div class="setting-info">
+              <span class="setting-name">Auto-Capture</span>
+              <span class="setting-desc">Automatically capture frame when face is steady</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="setting-autocapture">
+              <span class="switch-slider"></span>
+            </label>
           </div>
 
           <button id="save-settings-btn" class="primary-btn" style="margin-top: 20px;">SAVE CONFIGURATION</button>

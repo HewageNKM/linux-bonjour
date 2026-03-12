@@ -78,6 +78,9 @@ pub enum DaemonResponse {
         camera_path: Option<String>,
         enabled: bool,
         has_face_data: bool,
+        enable_login: bool,
+        enable_sudo: bool,
+        enable_polkit: bool,
     },
 }
 
@@ -177,6 +180,9 @@ pub unsafe extern "C" fn pam_sm_authenticate(
     let mut retry_limit = 3; // Default fallback
     let mut system_enabled = true;
     let mut has_face_data = true;
+    let mut enable_login = true;
+    let mut enable_sudo = true;
+    let mut enable_polkit = true;
 
     if let Ok(mut stream) = UnixStream::connect(SOCKET_PATH) {
         let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
@@ -185,18 +191,49 @@ pub unsafe extern "C" fn pam_sm_authenticate(
         if let Ok(_) = stream.write_all(format!("{}\n", req_json).as_bytes()) {
             let mut reader = BufReader::new(stream).lines();
             if let Some(Ok(line)) = reader.next() {
-                if let Ok(DaemonResponse::Config { retry_limit: limit, enabled, has_face_data: hfd, .. }) = serde_json::from_str(&line) {
+                if let Ok(DaemonResponse::Config { 
+                    retry_limit: limit, 
+                    enabled, 
+                    has_face_data: hfd, 
+                    enable_login: el, 
+                    enable_sudo: es, 
+                    enable_polkit: ep, 
+                    .. 
+                }) = serde_json::from_str(&line) {
                     retry_limit = limit;
                     system_enabled = enabled;
                     has_face_data = hfd;
+                    enable_login = el;
+                    enable_sudo = es;
+                    enable_polkit = ep;
                 }
             }
         }
     }
 
-    // Silent fallback if disabled
+    // Silent fallback if disabled globally
     if !system_enabled {
         return PamReturnCode::AUTHINFO_UNAVAIL;
+    }
+
+    // Granular service checks
+    let mut service = String::new();
+    let mut service_ptr: *const libc::c_void = ptr::null();
+    if pam_sys::get_item(&*pamh, pam_sys::PamItemType::SERVICE, &mut service_ptr) == PamReturnCode::SUCCESS && !service_ptr.is_null() {
+        let service_cstr = CStr::from_ptr(service_ptr as *const libc::c_char);
+        service = service_cstr.to_string_lossy().into_owned().to_lowercase();
+        
+        // Skip if service specific toggle is OFF
+        if (service == "sudo" && !enable_sudo) || 
+           ((service == "login" || service.contains("gdm") || service.contains("sddm") || service.contains("lightdm") || service.contains("dm")) && !enable_login) ||
+           (service.starts_with("polkit") && !enable_polkit) {
+            return PamReturnCode::AUTHINFO_UNAVAIL;
+        }
+
+        // Ignore consent on pre-login display managers and TTY login
+        if service.contains("gdm") || service.contains("sddm") || service.contains("lightdm") || service.contains("dm") || service == "login" {
+            bypass_consent = true;
+        }
     }
 
     // Useful feedback if no face data

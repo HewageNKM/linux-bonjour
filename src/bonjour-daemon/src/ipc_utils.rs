@@ -28,6 +28,12 @@ pub enum DaemonRequest {
         ask_permission: bool,
         retry_limit: u32,
         camera_path: Option<String>,
+        #[serde(default = "default_true")]
+        enable_login: bool,
+        #[serde(default = "default_true")]
+        enable_sudo: bool,
+        #[serde(default = "default_true")]
+        enable_polkit: bool,
     },
     GetHardwareStatus,
     DownloadModel { name: String },
@@ -73,8 +79,13 @@ pub enum DaemonResponse {
         camera_path: Option<String>,
         enabled: bool,
         has_face_data: bool,
+        enable_login: bool,
+        enable_sudo: bool,
+        enable_polkit: bool,
     },
 }
+
+fn default_true() -> bool { true }
 
 pub struct UdsServer {
     socket_path: String,
