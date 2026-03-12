@@ -238,10 +238,15 @@ fn perform_verify(pamh: *mut PamHandle, user: &str, bypass_consent: bool, attemp
                         DaemonResponse::Failure { reason } => {
                             unsafe { send_message(pamh, PAM_ERROR_MSG, &format!("❌ [Bonjour] Authentication failed: {}", reason)); }
                             
+                            // Immediately fail without retry if the system is disabled
+                            if reason.contains("System is globally disabled") {
+                                return PamReturnCode::AUTHINFO_UNAVAIL;
+                            }
+
                             if attempt >= max_attempts {
                                 unsafe { send_message(pamh, PAM_ERROR_MSG, "❌ [Bonjour] Maximum attempts reached."); }
                                 unsafe { send_message(pamh, PAM_TEXT_INFO, "⚠️ [Bonjour] Biometric fallback. Please use system password."); }
-                                return PamReturnCode::AUTH_ERR;
+                                return PamReturnCode::AUTHINFO_UNAVAIL;
                             }
 
                             // Ask for retry
@@ -257,7 +262,8 @@ fn perform_verify(pamh: *mut PamHandle, user: &str, bypass_consent: bool, attemp
                                     unsafe { send_message(pamh, PAM_TEXT_INFO, "⚠️ [Bonjour] Biometric fallback. Please use system password."); }
                                 }
                             }
-                            return PamReturnCode::AUTH_ERR;
+                            // Return AUTHINFO_UNAVAIL to indicate biometric failure so PAM moves on
+                            return PamReturnCode::AUTHINFO_UNAVAIL;
                         },
                         _ => {}
                     }
