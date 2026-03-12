@@ -32,6 +32,15 @@ async fn get_system_status() -> Result<DaemonResponse, String> {
 }
 
 #[tauri::command]
+async fn stop_biometric_command() -> Result<(), String> {
+    let mut stream = UnixStream::connect(SOCKET_PATH).await.map_err(|e| format!("Daemon connection failed: {}", e))?;
+    let request = DaemonRequest::STOP;
+    let req_json = serde_json::to_string(&request).map_err(|e| e.to_string())?;
+    stream.write_all(format!("{}\n", req_json).as_bytes()).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 async fn run_biometric_command(app: AppHandle, cmd: String, user: String) -> Result<(), String> {
     let request = match cmd.as_str() {
         "VERIFY" => DaemonRequest::Verify { user, bypass_consent: false },
@@ -86,6 +95,21 @@ async fn list_identities() -> Result<DaemonResponse, String> {
         return Ok(resp);
     }
     Err("Failed to get identities from daemon".to_string())
+}
+
+#[tauri::command]
+async fn rename_identity(old_name: String, new_name: String) -> Result<DaemonResponse, String> {
+    let mut stream = UnixStream::connect(SOCKET_PATH).await.map_err(|e| format!("Daemon connection failed: {}", e))?;
+    let request = DaemonRequest::RenameIdentity { old_name, new_name };
+    let req_json = serde_json::to_string(&request).map_err(|e| e.to_string())?;
+    stream.write_all(format!("{}\n", req_json).as_bytes()).await.map_err(|e| e.to_string())?;
+    
+    let mut reader = BufReader::new(stream).lines();
+    if let Ok(Some(line)) = reader.next_line().await {
+        let resp = serde_json::from_str::<DaemonResponse>(&line).map_err(|e| e.to_string())?;
+        return Ok(resp);
+    }
+    Err("Failed to rename identity".to_string())
 }
 
 #[tauri::command]
@@ -265,7 +289,9 @@ pub fn run() {
             get_hardware_status,
             download_model,
             check_groups,
-            manage_service
+            manage_service,
+            rename_identity,
+            stop_biometric_command
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

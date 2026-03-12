@@ -18,7 +18,7 @@ use ipc_utils::{UdsServer, DaemonRequest, DaemonResponse, CameraInfo};
 use security_utils::{EncryptionProvider, PlainProvider, SoftwareProvider, TpmProvider};
 use base64::{Engine as _, engine::general_purpose};
 use std::io::Cursor;
-#[derive(Serialize, Deserialize, Clone, Default)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
 struct DaemonConfig {
     threshold: f32,
@@ -33,6 +33,25 @@ struct DaemonConfig {
     enable_login: bool,
     enable_sudo: bool,
     enable_polkit: bool,
+}
+
+impl Default for DaemonConfig {
+    fn default() -> Self {
+        Self {
+            threshold: 0.38,
+            smile_required: false,
+            autocapture: false,
+            liveness_enabled: true,
+            liveness_threshold: 0.50,
+            ask_permission: false,
+            retry_limit: 3,
+            camera_path: None,
+            active_model: "buffalo_l".to_string(),
+            enable_login: true,
+            enable_sudo: true,
+            enable_polkit: true,
+        }
+    }
 }
 
 impl DaemonConfig {
@@ -56,7 +75,10 @@ impl DaemonConfig {
     fn load() -> Self {
         let path = "/etc/linux-bonjour/config.json";
         if let Ok(data) = std::fs::read_to_string(path) {
-            if let Ok(config) = serde_json::from_str(&data) {
+            if let Ok(mut config) = serde_json::from_str::<DaemonConfig>(&data) {
+                if config.active_model.is_empty() {
+                    config.active_model = "buffalo_l".to_string();
+                }
                 return config;
             }
         }
@@ -201,6 +223,8 @@ async fn main() -> Result<()> {
     let config_cloned = Arc::clone(&config);
     let accel_cloned = acceleration.clone();
     let tpm_state_cloned = Arc::clone(&tpm_active_clone);
+    let cancel_signal = Arc::new(AtomicBool::new(false));
+    let cancel_signal_cloned = Arc::clone(&cancel_signal);
 
     server.start(move |req, tx| {
         let context = Arc::clone(&context_cloned);
@@ -209,9 +233,15 @@ async fn main() -> Result<()> {
         let config = Arc::clone(&config_cloned);
         let accel_locked = accel_cloned.clone();
         let tpm_state = Arc::clone(&tpm_state_cloned);
+        let cancel_signal = Arc::clone(&cancel_signal_cloned);
         
         async move {
             match req {
+                DaemonRequest::STOP => {
+                    cancel_signal.store(true, Ordering::SeqCst);
+                    println!("🛑 Global stop signal received");
+                    let _ = tx.send(DaemonResponse::ActionSuccess { msg: "Stop signal received".to_string() }).await;
+                },
                 DaemonRequest::SetEnabled { enabled: val } => {
                     enabled.store(val, Ordering::SeqCst);
                     println!("⚙️ System {}", if val { "ENABLED" } else { "DISABLED" });
@@ -232,6 +262,13 @@ async fn main() -> Result<()> {
                     let ctx = context.lock().await;
                     match ctx.store.delete_identity(&user) {
                         Ok(_) => { let _ = tx.send(DaemonResponse::ActionSuccess { msg: format!("Identity '{}' deleted", user) }).await; },
+                        Err(e) => { let _ = tx.send(DaemonResponse::Failure { reason: e.to_string() }).await; },
+                    }
+                },
+                DaemonRequest::RenameIdentity { old_name, new_name } => {
+                    let ctx = context.lock().await;
+                    match ctx.store.rename_identity(&old_name, &new_name) {
+                        Ok(_) => { let _ = tx.send(DaemonResponse::ActionSuccess { msg: format!("Identity '{}' renamed to '{}'", old_name, new_name) }).await; },
                         Err(e) => { let _ = tx.send(DaemonResponse::Failure { reason: e.to_string() }).await; },
                     }
                 },
@@ -542,25 +579,34 @@ async fn main() -> Result<()> {
                                     } else {
                                         let aligned = engine_lock.align_face(&dyn_img, &detections[0].landmarks);
                                         if let Ok(embedding) = engine_lock.get_face_embedding(&aligned) {
+                                            // 1. Try 1:1 match with requested user
+                                            let mut matched_user = None;
                                             if let Ok(saved_embedding) = store.load_signature(&user) {
                                                 let score = SignatureStore::cosine_similarity(&embedding, &saved_embedding);
-                                                let liveness_score = detections[0].liveness_score;
-                                                
                                                 if score > threshold {
-                                                    if !smile_required || liveness_score > liveness_threshold {
-                                                        println!("✅ [Bonjour] Success: {}", user);
-                                                        let _ = tx.send(DaemonResponse::Success { user: user.clone() }).await;
-                                                        return;
-                                                    } else {
-                                                        last_error = format!("Liveness failed ({:.2})", liveness_score);
-                                                    }
+                                                    matched_user = Some((user.clone(), score));
+                                                }
+                                            }
+
+                                            // 2. Fallback to 1:N Identification if requested user didn't match
+                                            if matched_user.is_none() {
+                                                if let Ok(Some((identified_user, score))) = store.identify_user(&embedding, threshold) {
+                                                    println!("🔍 [Bonjour] Identified as: {} (score: {:.2})", identified_user, score);
+                                                    matched_user = Some((identified_user, score));
+                                                }
+                                            }
+
+                                            if let Some((final_user, score)) = matched_user {
+                                                let liveness_score = detections[0].liveness_score;
+                                                if !smile_required || liveness_score > liveness_threshold {
+                                                    println!("✅ [Bonjour] Success: {} (score: {:.2})", final_user, score);
+                                                    let _ = tx.send(DaemonResponse::Success { user: final_user }).await;
+                                                    return;
                                                 } else {
-                                                    last_error = format!("Match failed (score: {:.2})", score);
+                                                    last_error = format!("Liveness failed ({:.2})", liveness_score);
                                                 }
                                             } else {
-                                                println!("⚠️ [Bonjour] No signature for {}", user);
-                                                let _ = tx.send(DaemonResponse::Failure { reason: format!("User '{}' not found", user) }).await;
-                                                return;
+                                                last_error = "No matching identity found".to_string();
                                             }
                                         }
                                     }
@@ -589,11 +635,16 @@ async fn main() -> Result<()> {
                     let target_scans = 5;
                     
                     println!("🚀 Starting interactive enrollment for user: {}", user);
+                    cancel_signal.store(false, Ordering::SeqCst);
 
                     let mut last_processed_time = std::time::Instant::now();
                     
                     // Main scanning loop
                     for _attempt in 0..100 { // Max attempts to prevent infinite loop
+                        if cancel_signal.load(Ordering::SeqCst) {
+                            println!("🛑 Enrollment cancelled via signal");
+                            return;
+                        }
                         if collected_embeddings.len() >= target_scans { break; }
 
                         let capture_result: Result<DynamicImage> = (|| {
@@ -640,11 +691,14 @@ async fn main() -> Result<()> {
                                     format!("Capturing... ({} of {})", collected_embeddings.len() + 1, target_scans)
                                 };
 
-                                let _ = tx.send(DaemonResponse::EnrollmentFrame { 
+                                if let Err(_) = tx.send(DaemonResponse::EnrollmentFrame { 
                                     base64_image: b64, 
                                     message: msg,
                                     progress
-                                }).await;
+                                }).await {
+                                    println!("🔌 Enrollment interrupted (Client disconnected)");
+                                    return;
+                                }
                             }
 
                             // 2. Process face

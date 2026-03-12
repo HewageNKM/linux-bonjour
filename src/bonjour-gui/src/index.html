@@ -116,7 +116,7 @@
       <div id="view-enrollment" class="view">
         <h2 class="view-title">Enrollment</h2>
         <div class="enroll-form">
-          <input type="text" id="username" placeholder="Username (Optional)" class="glass-input">
+          <input type="text" id="username" placeholder="Identity Name (e.g. MyFace)" class="glass-input">
           <button id="enroll-btn" class="primary-btn">START ENROLLMENT</button>
         </div>
         <h3 class="section-title">Enrolled Identities</h3>
@@ -337,8 +337,23 @@
       </div>
     </div>
 
+    <!-- Custom Prompt Modal -->
+    <div id="prompt-modal" class="modal-overlay hidden">
+      <div class="modal-content">
+        <h3 id="prompt-title" class="modal-title">Input Required</h3>
+        <p id="prompt-message" class="modal-desc">Please enter a value:</p>
+        <div class="modal-body">
+          <input type="text" id="prompt-input" class="glass-input" style="width: 100%; margin-top: 16px;">
+        </div>
+        <div class="modal-actions" style="margin-top: 24px;">
+          <button id="prompt-cancel-btn" class="secondary-btn">Cancel</button>
+          <button id="prompt-ok-btn" class="primary-btn">Rename</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Enrollment Modal Overlay -->
-    <div id="enrollment-modal" class="modal-overlay">
+    <div id="enrollment-modal" class="modal-overlay hidden">
       <div class="modal-content enrollment-content">
         <h2 class="modal-title">Face Enrollment</h2>
         <div class="enrollment-preview-container">

@@ -10,6 +10,49 @@ const views = document.querySelectorAll('.view');
 const statStatus = getEl('stat-status');
 const statIdentities = getEl('stat-identities');
 const identityList = getEl('identity-list');
+
+// --- CUSTOM MODALS ---
+const promptModal = getEl('prompt-modal');
+const promptTitle = getEl('prompt-title');
+const promptMessage = getEl('prompt-message');
+const promptInput = getEl('prompt-input');
+const promptCancelBtn = getEl('prompt-cancel-btn');
+const promptOkBtn = getEl('prompt-ok-btn');
+
+function customPrompt(title, message, defaultValue = "") {
+    return new Promise((resolve) => {
+        promptTitle.innerText = title;
+        promptMessage.innerText = message;
+        promptInput.value = defaultValue;
+        promptModal.classList.remove('hidden');
+        promptInput.focus();
+        promptInput.select();
+
+        const cleanup = () => {
+            promptModal.classList.add('hidden');
+            // Use once: true or remove listeners to avoid accumulation
+            promptOkBtn.onclick = null;
+            promptCancelBtn.onclick = null;
+            promptInput.onkeydown = null;
+        };
+
+        promptOkBtn.onclick = () => {
+            const val = promptInput.value;
+            cleanup();
+            resolve(val);
+        };
+
+        promptCancelBtn.onclick = () => {
+            cleanup();
+            resolve(null);
+        };
+
+        promptInput.onkeydown = (e) => {
+            if (e.key === 'Enter') promptOkBtn.onclick();
+            if (e.key === 'Escape') promptCancelBtn.onclick();
+        };
+    });
+}
 const journalOutput = getEl('journal-output');
 const thresholdSlider = getEl('threshold-slider');
 const thresholdValue = getEl('threshold-value');
@@ -269,9 +312,32 @@ async function loadIdentities() {
                     <div class="identity-avatar">${user[0].toUpperCase()}</div>
                     <span>${user}</span>
                 </div>
-                <button class="delete-btn" data-user="${user}">DELETE</button>
+                <div class="identity-actions">
+                    <button class="rename-btn" data-user="${user}">RENAME</button>
+                    <button class="delete-btn" data-user="${user}">DELETE</button>
+                </div>
             `;
             identityList.appendChild(el);
+        });
+
+        identityList.querySelectorAll('.rename-btn').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const oldName = btn.dataset.user;
+                const newName = await customPrompt(
+                    "Rename Identity",
+                    `Enter a new name for '${oldName}':`,
+                    oldName
+                );
+                if (newName && newName !== oldName) {
+                    try {
+                        await invoke("rename_identity", { oldName, newName });
+                        showToast(`Renamed ${oldName} to ${newName}`);
+                        loadIdentities();
+                    } catch (err) {
+                        showToast(`Rename failed: ${err}`, 'error');
+                    }
+                }
+            });
         });
 
         identityList.querySelectorAll('.delete-btn').forEach(btn => {
@@ -311,7 +377,9 @@ async function updateSystemStatus() {
             statTpm.innerText = hw.tpm;
             statAcceleration.innerText = hw.acceleration;
             statCamera.innerText = hw.camera;
-            if (statActiveModel) statActiveModel.innerText = hw.active_model;
+            if (statActiveModel) {
+                statActiveModel.innerText = hw.active_model || "None";
+            }
             
             statTpm.className = `stat-value ${hw.tpm.includes('Active') ? 'success' : 'info'}`;
             statAcceleration.className = `stat-value ${hw.acceleration.includes('GPU') ? 'success' : 'info'}`;
@@ -378,7 +446,7 @@ enrollBtn.addEventListener('click', async () => {
     const user = usernameInput.value.trim() || "default";
 
     enrollBtn.disabled = true;
-    enrollmentModal.style.display = 'flex';
+    enrollmentModal.classList.remove('hidden');
     setEnrollmentProgress(0);
     enrollmentInstruction.innerText = "Initializing camera...";
     enrollmentVideo.src = "";
@@ -387,15 +455,20 @@ enrollBtn.addEventListener('click', async () => {
         await invoke("run_biometric_command", { cmd: "ENROLL", user });
     } catch (err) {
         showToast(`Enrollment failed: ${err}`, "error");
-        enrollmentModal.style.display = 'none';
+        enrollmentModal.classList.add('hidden');
         enrollBtn.disabled = false;
     }
 });
 
 if (cancelEnrollmentBtn) {
-    cancelEnrollmentBtn.addEventListener('click', () => {
-        enrollmentModal.style.display = 'none';
+    cancelEnrollmentBtn.addEventListener('click', async () => {
+        enrollmentModal.classList.add('hidden');
         enrollBtn.disabled = false;
+        try {
+            await invoke("stop_biometric_command");
+        } catch (e) {
+            console.warn("Could not stop biometric command:", e);
+        }
     });
 }
 
@@ -432,7 +505,7 @@ listen("biometric-status", (event) => {
         if (enrollBtn.disabled) {
             // This was likely an enrollment success
             showToast(`Enrollment successful!`);
-            enrollmentModal.style.display = 'none';
+            enrollmentModal.classList.add('hidden');
             enrollBtn.disabled = false;
             loadIdentities();
         } else {

@@ -40,6 +40,8 @@ pub enum DaemonRequest {
     DownloadModel { name: String },
     GetCameraList,
     GetConfig,
+    RenameIdentity { old_name: String, new_name: String },
+    STOP,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
