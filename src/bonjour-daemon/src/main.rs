@@ -271,7 +271,7 @@ async fn main() -> Result<()> {
                 },
                 DaemonRequest::GetConfig => {
                     let cfg = config.lock().await;
-                    let has_face_data = if let Ok(sigs) = SignatureStore::new("/var/lib/linux-bonjour", signature_utils::EncryptionProvider::Plain(PlainProvider)) {
+                    let has_face_data = if let Ok(sigs) = SignatureStore::new("/var/lib/linux-bonjour", EncryptionProvider::Plain(PlainProvider)) {
                         !sigs.list_identities().unwrap_or_default().is_empty()
                     } else {
                         false
