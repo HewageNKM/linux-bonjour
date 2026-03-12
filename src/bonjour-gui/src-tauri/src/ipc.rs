@@ -63,6 +63,11 @@ pub enum DaemonResponse {
         name: String,
         percentage: f32 
     },
+    EnrollmentFrame {
+        base64_image: String,
+        message: String,
+        progress: f32
+    },
     CameraList { devices: Vec<CameraInfo> },
     Config {
         threshold: f32,

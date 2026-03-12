@@ -16,6 +16,8 @@ use onnx_utils::InferenceEngine;
 use signature_utils::SignatureStore;
 use ipc_utils::{UdsServer, DaemonRequest, DaemonResponse, CameraInfo};
 use security_utils::{EncryptionProvider, PlainProvider, SoftwareProvider, TpmProvider};
+use base64::{Engine as _, engine::general_purpose};
+use std::io::Cursor;
 #[derive(Serialize, Deserialize, Clone, Default)]
 #[serde(default)]
 struct DaemonConfig {
@@ -569,28 +571,35 @@ async fn main() -> Result<()> {
                         cfg.camera_path.clone()
                     };
                     
-                    let capture_result: Result<DynamicImage> = (|| {
-                        let devices = nokhwa::query(nokhwa::utils::ApiBackend::Video4Linux)?;
-                        if devices.is_empty() { anyhow::bail!("No camera found"); }
-                        
-                        let mut sorted_devices = devices.clone();
-                        sorted_devices.sort_by_key(|d| {
-                            if let Some(ref path) = camera_path_override {
-                                if d.human_name() == *path || d.index().to_string() == *path {
-                                    return 0;
-                                }
-                            }
-                            let name = d.human_name().to_lowercase();
-                            if name.contains("ir") || name.contains("infrared") { 1 } else { 2 }
-                        });
+                    let mut collected_embeddings: Vec<Vec<f32>> = Vec::new();
+                    let target_scans = 5;
+                    
+                    println!("🚀 Starting interactive enrollment for user: {}", user);
 
-                        for dev in sorted_devices {
-                            let format_strategies = vec![RequestedFormatType::AbsoluteHighestResolution, RequestedFormatType::None];
-                            for strategy in format_strategies {
-                                let format = RequestedFormat::new::<RgbFormat>(strategy);
+                    let mut last_processed_time = std::time::Instant::now();
+                    
+                    // Main scanning loop
+                    for _attempt in 0..100 { // Max attempts to prevent infinite loop
+                        if collected_embeddings.len() >= target_scans { break; }
+
+                        let capture_result: Result<DynamicImage> = (|| {
+                            let devices = nokhwa::query(nokhwa::utils::ApiBackend::Video4Linux)?;
+                            if devices.is_empty() { anyhow::bail!("No camera found"); }
+                            
+                            let mut sorted_devices = devices.clone();
+                            sorted_devices.sort_by_key(|d| {
+                                if let Some(ref path) = camera_path_override {
+                                    if d.human_name() == *path || d.index().to_string() == *path { return 0; }
+                                }
+                                let name = d.human_name().to_lowercase();
+                                if name.contains("ir") || name.contains("infrared") { 1 } else { 2 }
+                            });
+
+                            for dev in sorted_devices {
+                                let format = RequestedFormat::new::<RgbFormat>(RequestedFormatType::AbsoluteHighestResolution);
                                 if let Ok(mut camera) = Camera::with_backend(dev.index().clone(), format, nokhwa::utils::ApiBackend::Video4Linux) {
                                     if camera.open_stream().is_ok() {
-                                        for _ in 0..5 { let _ = camera.frame(); std::thread::sleep(std::time::Duration::from_millis(100)); }
+                                        for _ in 0..2 { let _ = camera.frame(); }
                                         if let Ok(frame) = camera.frame() {
                                             let dyn_img = frame.decode_image::<RgbFormat>()?;
                                             let _ = camera.stop_stream();
@@ -599,34 +608,72 @@ async fn main() -> Result<()> {
                                     }
                                 }
                             }
-                        }
-                        Err(anyhow::anyhow!("Capture failed"))
-                    })();
+                            Err(anyhow::anyhow!("Capture failed"))
+                        })();
 
-                    match capture_result {
-                        Ok(dyn_img) => {
-                            let mut engine_lock = engine.lock().await;
-                            match engine_lock.detect_faces(&dyn_img) {
-                                Ok(detections) => {
-                                    if detections.is_empty() {
-                                        let _ = tx.send(DaemonResponse::Failure { reason: "No face detected".to_string() }).await;
-                                    } else {
+                        if let Ok(dyn_img) = capture_result {
+                            // 1. Encode frame for GUI
+                            let mut buf = Vec::new();
+                            let mut cursor = Cursor::new(&mut buf);
+                            // Resize for faster transfer if needed, but let's try raw first or modestly resized
+                            let small_img = dyn_img.thumbnail(320, 240);
+                            if let Ok(_) = small_img.write_to(&mut cursor, image::ImageFormat::Jpeg) {
+                                let b64 = general_purpose::STANDARD.encode(&buf);
+                                let progress = collected_embeddings.len() as f32 / target_scans as f32;
+                                let msg = if collected_embeddings.is_empty() {
+                                    "Align your face to the center...".to_string()
+                                } else {
+                                    format!("Capturing... ({} of {})", collected_embeddings.len() + 1, target_scans)
+                                };
+
+                                let _ = tx.send(DaemonResponse::EnrollmentFrame { 
+                                    base64_image: b64, 
+                                    message: msg,
+                                    progress
+                                }).await;
+                            }
+
+                            // 2. Process face
+                            if last_processed_time.elapsed() > std::time::Duration::from_millis(500) {
+                                let mut engine_lock = engine.lock().await;
+                                if let Ok(detections) = engine_lock.detect_faces(&dyn_img) {
+                                    if !detections.is_empty() {
                                         let aligned = engine_lock.align_face(&dyn_img, &detections[0].landmarks);
-                                        match engine_lock.get_face_embedding(&aligned) {
-                                            Ok(embedding) => {
-                                                match store.save_signature(&user, &embedding) {
-                                                    Ok(_) => { let _ = tx.send(DaemonResponse::Success { user: user.clone() }).await; },
-                                                    Err(e) => { let _ = tx.send(DaemonResponse::Failure { reason: e.to_string() }).await; },
-                                                }
-                                            },
-                                            Err(e) => { let _ = tx.send(DaemonResponse::Failure { reason: e.to_string() }).await; },
+                                        if let Ok(embedding) = engine_lock.get_face_embedding(&aligned) {
+                                            collected_embeddings.push(embedding);
+                                            println!("📍 Collected scan {}/{}", collected_embeddings.len(), target_scans);
                                         }
                                     }
-                                },
-                                Err(e) => { let _ = tx.send(DaemonResponse::Failure { reason: e.to_string() }).await; },
+                                }
+                                last_processed_time = std::time::Instant::now();
                             }
-                        },
-                        Err(e) => { let _ = tx.send(DaemonResponse::Failure { reason: e.to_string() }).await; },
+                        }
+                        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+                    }
+
+                    if collected_embeddings.len() >= target_scans {
+                        // AVERAGE EMBEDDINGS
+                        let dim = collected_embeddings[0].len();
+                        let mut avg_embedding = vec![0.0f32; dim];
+                        for emb in &collected_embeddings {
+                            for i in 0..dim {
+                                avg_embedding[i] += emb[i];
+                            }
+                        }
+                        for i in 0..dim {
+                            avg_embedding[i] /= collected_embeddings.len() as f32;
+                        }
+
+                        // Save the averaged signature
+                        match store.save_signature(&user, &avg_embedding) {
+                            Ok(_) => { 
+                                println!("✅ Averaged enrollment success for user: {}", user);
+                                let _ = tx.send(DaemonResponse::Success { user: user.clone() }).await; 
+                            },
+                            Err(e) => { let _ = tx.send(DaemonResponse::Failure { reason: e.to_string() }).await; },
+                        }
+                    } else {
+                        let _ = tx.send(DaemonResponse::Failure { reason: "Enrollment timed out or incomplete".to_string() }).await;
                     }
                 },
             }

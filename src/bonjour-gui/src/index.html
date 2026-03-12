@@ -330,6 +330,24 @@
       </div>
     </div>
 
+    <!-- Enrollment Modal Overlay -->
+    <div id="enrollment-modal" class="modal-overlay">
+      <div class="modal-content enrollment-content">
+        <h2 class="modal-title">Face Enrollment</h2>
+        <div class="enrollment-preview-container">
+          <div class="video-preview-pulse"></div>
+          <img id="enrollment-video" class="enrollment-video" src="" alt="Enrollment Video Feed">
+          <svg class="progress-ring" width="220" height="220">
+            <circle class="progress-ring__circle" stroke="#2563eb" stroke-width="8" fill="transparent" r="98" cx="110" cy="110"/>
+          </svg>
+        </div>
+        <p id="enrollment-instruction" class="enrollment-instruction">Initializing camera...</p>
+        <div class="modal-actions">
+          <button id="cancel-enrollment" class="btn btn-secondary">Cancel</button>
+        </div>
+      </div>
+    </div>
+
     <script type="module" src="/main.js"></script>
   </body>
 </html>

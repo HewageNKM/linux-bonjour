@@ -772,3 +772,68 @@ button.danger:hover {
   margin-top: 4px;
   display: block;
 }
+/* Enrollment Modal */
+.enrollment-content {
+  max-width: 480px;
+  text-align: center;
+  padding: 40px;
+}
+
+.enrollment-preview-container {
+  position: relative;
+  width: 220px;
+  height: 220px;
+  margin: 0 auto 24px;
+  border-radius: 50%;
+  padding: 8px;
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+}
+
+.video-preview-pulse {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: 50%;
+  border: 4px solid var(--info);
+  opacity: 0.2;
+  animation: pulse-ring 2s infinite;
+}
+
+.enrollment-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+  background: #000;
+  transform: scaleX(-1); /* Mirror effect */
+}
+
+.progress-ring {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: rotate(-90deg);
+  pointer-events: none;
+}
+
+.progress-ring__circle {
+  transition: stroke-dashoffset 0.35s;
+  transform-origin: 50% 50%;
+}
+
+.enrollment-instruction {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 24px;
+  min-height: 27px;
+}
+
+@keyframes pulse-ring {
+  0% { transform: scale(0.95); opacity: 0.2; }
+  50% { transform: scale(1.05); opacity: 0.1; }
+  100% { transform: scale(0.95); opacity: 0.2; }
+}

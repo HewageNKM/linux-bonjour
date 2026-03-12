@@ -42,6 +42,25 @@ const statRetries = getEl('stat-retries');
 const statActiveModel = getEl('stat-active-model');
 const statLivenessMode = getEl('stat-liveness-mode');
 const statGroups = getEl('stat-groups');
+const enrollmentModal = getEl('enrollment-modal');
+const enrollmentVideo = getEl('enrollment-video');
+const enrollmentInstruction = getEl('enrollment-instruction');
+const cancelEnrollmentBtn = getEl('cancel-enrollment');
+const progressCircle = document.querySelector('.progress-ring__circle');
+if (progressCircle) {
+    const radius = progressCircle.r.baseVal.value;
+    const circumference = radius * 2 * Math.PI;
+    progressCircle.style.strokeDasharray = `${circumference} ${circumference}`;
+    progressCircle.style.strokeDashoffset = circumference;
+}
+
+function setEnrollmentProgress(percent) {
+    if (!progressCircle) return;
+    const radius = progressCircle.r.baseVal.value;
+    const circumference = radius * 2 * Math.PI;
+    const offset = circumference - (percent / 100) * circumference;
+    progressCircle.style.strokeDashoffset = offset;
+}
 
 // --- NOTIFICATION SYSTEM ---
 function showToast(message, type = 'success') {
@@ -341,18 +360,26 @@ enrollBtn.addEventListener('click', async () => {
     const user = usernameInput.value.trim() || "default";
 
     enrollBtn.disabled = true;
-    showToast(`Starting capture for ${user}...`, "info");
+    enrollmentModal.style.display = 'flex';
+    setEnrollmentProgress(0);
+    enrollmentInstruction.innerText = "Initializing camera...";
+    enrollmentVideo.src = "";
 
     try {
         await invoke("run_biometric_command", { cmd: "ENROLL", user });
-        showToast(user === "default" ? "Enrollment successful!" : `Enrollment successful for ${user}!`);
-        loadIdentities();
     } catch (err) {
-        showToast(`Biometric Error: ${err}`, "error");
-    } finally {
+        showToast(`Enrollment failed: ${err}`, "error");
+        enrollmentModal.style.display = 'none';
         enrollBtn.disabled = false;
     }
 });
+
+if (cancelEnrollmentBtn) {
+    cancelEnrollmentBtn.addEventListener('click', () => {
+        enrollmentModal.style.display = 'none';
+        enrollBtn.disabled = false;
+    });
+}
 
 // --- LOGS ---
 async function loadLogs() {
@@ -370,18 +397,39 @@ getEl('refresh-logs').addEventListener('click', loadLogs);
 // --- LISTEN FOR REAL-TIME EVENTS ---
 listen("biometric-status", (event) => {
     const resp = event.payload;
-    if (resp.status === "SCANNING") {
+    
+    if (resp.status === "ENROLLMENT_FRAME") {
+        if (enrollmentVideo) {
+            enrollmentVideo.src = `data:image/jpeg;base64,${resp.base64_image}`;
+        }
+        if (enrollmentInstruction) {
+            enrollmentInstruction.innerText = resp.message;
+        }
+        setEnrollmentProgress(resp.progress * 100);
+    } else if (resp.status === "SCANNING") {
         // Scanning feedback (reduced noise)
     } else if (resp.status === "INFO") {
         showToast(resp.msg, "info");
     } else if (resp.status === "SUCCESS") {
-        showToast(`Authenticated: ${resp.user}`, "success");
-        updateSystemStatus();
+        if (enrollBtn.disabled) {
+            // This was likely an enrollment success
+            showToast(`Enrollment successful!`);
+            enrollmentModal.style.display = 'none';
+            enrollBtn.disabled = false;
+            loadIdentities();
+        } else {
+            showToast(`Authenticated: ${resp.user}`, "success");
+            updateSystemStatus();
+        }
     } else if (resp.status === "ACTION_SUCCESS") {
         showToast(resp.msg, "success");
         updateSystemStatus();
     } else if (resp.status === "FAILURE") {
-        showToast(resp.reason, "error");
+        showToast(`Error: ${resp.reason}`, "error");
+        if (enrollBtn.disabled) {
+            enrollmentModal.style.display = 'none';
+            enrollBtn.disabled = false;
+        }
     }
 });
 
