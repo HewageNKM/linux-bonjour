@@ -31,7 +31,7 @@ Our `.deb` package is standardized for universal Ubuntu compatibility (22.04 LTS
 ### 1. Simple Deployment
 
 ```bash
-sudo dpkg -i linux-bonjour_2.1.8_amd64.deb
+sudo dpkg -i linux-bonjour_2.1.9_amd64.deb
 sudo apt-get install -f  # Resolves hardware library gaps automatically
 ```
 
