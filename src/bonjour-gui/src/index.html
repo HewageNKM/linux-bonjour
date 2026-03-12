@@ -42,8 +42,8 @@
           
           <div class="stats-grid">
             <div class="stat-card">
-              <span class="stat-label">System Status</span>
-              <span id="stat-status" class="stat-value active-pulse">Active</span>
+              <span class="stat-label">Security Shield</span>
+              <span id="stat-status" class="stat-value success">Protected</span>
             </div>
             <div class="stat-card">
               <span class="stat-label">Enrolled Identities</span>
@@ -94,7 +94,7 @@
       <div id="view-enrollment" class="view">
         <h2 class="view-title">Enrollment</h2>
         <div class="enroll-form">
-          <input type="text" id="username" placeholder="Username" class="glass-input">
+          <input type="text" id="username" placeholder="Username (Optional)" class="glass-input">
           <button id="enroll-btn" class="primary-btn">START ENROLLMENT</button>
         </div>
         <h3 class="section-title">Enrolled Identities</h3>
@@ -107,16 +107,6 @@
       <div id="view-settings" class="view">
         <h2 class="view-title">Settings</h2>
         <div class="settings-group">
-          <div class="setting-item" style="border-left: 4px solid var(--info);">
-            <div class="setting-info">
-              <span class="setting-name">Global System Enable</span>
-              <span class="setting-desc">Completely enable or disable biometric authentication</span>
-            </div>
-            <label class="switch">
-              <input type="checkbox" id="setting-system-enabled" checked>
-              <span class="switch-slider"></span>
-            </label>
-          </div>
           <div class="setting-item">
             <div class="setting-info">
               <span class="setting-name">Recognition Threshold</span>

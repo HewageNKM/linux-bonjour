@@ -15,8 +15,6 @@ pub enum DaemonRequest {
         bypass_consent: bool 
     },
     Enroll { user: String },
-    GetStatus,
-    SetEnabled { enabled: bool },
     ListIdentities,
     DeleteIdentity { user: String },
     UpdateConfig { 
@@ -48,13 +46,13 @@ pub enum DaemonResponse {
     Success { user: String },
     Failure { reason: String },
     Info { msg: String },
-    Status { enabled: bool },
     IdentityList { users: Vec<String> },
     ActionSuccess { msg: String },
     HardwareStatus { 
         tpm: String, 
         acceleration: String, 
-        camera: String 
+        camera: String,
+        enabled: bool
     },
     DownloadProgress { 
         name: String,

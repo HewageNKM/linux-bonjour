@@ -38,29 +38,6 @@ async fn run_biometric_command(app: AppHandle, cmd: String, user: String) -> Res
     Ok(())
 }
 
-#[tauri::command]
-async fn toggle_system(enabled: bool) -> Result<(), String> {
-    let mut stream = UnixStream::connect(SOCKET_PATH).await.map_err(|e| format!("Daemon connection failed: {}", e))?;
-    let request = DaemonRequest::SetEnabled { enabled };
-    let req_json = serde_json::to_string(&request).map_err(|e| e.to_string())?;
-    stream.write_all(format!("{}\n", req_json).as_bytes()).await.map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-#[tauri::command]
-async fn get_system_status() -> Result<DaemonResponse, String> {
-    let mut stream = UnixStream::connect(SOCKET_PATH).await.map_err(|e| format!("Daemon connection failed: {}", e))?;
-    let request = DaemonRequest::GetStatus;
-    let req_json = serde_json::to_string(&request).map_err(|e| e.to_string())?;
-    stream.write_all(format!("{}\n", req_json).as_bytes()).await.map_err(|e| e.to_string())?;
-    
-    let mut reader = BufReader::new(stream).lines();
-    if let Ok(Some(line)) = reader.next_line().await {
-        let resp = serde_json::from_str::<DaemonResponse>(&line).map_err(|e| e.to_string())?;
-        return Ok(resp);
-    }
-    Err("Failed to get status from daemon".to_string())
-}
 
 #[tauri::command]
 async fn get_journal_logs() -> Result<String, String> {
@@ -201,8 +178,6 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             run_biometric_command,
-            toggle_system,
-            get_system_status,
             list_identities,
             delete_identity,
             update_config,

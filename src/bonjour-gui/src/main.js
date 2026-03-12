@@ -18,7 +18,6 @@ const livenessThresholdValue = getEl('liveness-threshold-value');
 const settingSmile = getEl('setting-smile');
 const settingAutocapture = getEl('setting-autocapture');
 const settingLiveness = getEl('setting-liveness');
-const settingSystemEnabled = getEl('setting-system-enabled');
 const settingAskPermission = getEl('setting-ask-permission');
 const settingRetryLimit = getEl('setting-retry-limit');
 const settingModel = getEl('setting-model');
@@ -138,9 +137,6 @@ async function syncSettings() {
                 settingCamera.value = current;
             }
 
-            // Sync Global State
-            const status = await invoke("get_system_status");
-            settingSystemEnabled.checked = status.enabled;
         }
     } catch (err) {
         console.error("Failed to sync settings:", err);
@@ -177,8 +173,6 @@ getEl('save-settings-btn').addEventListener('click', async () => {
         const camera_path = settingCamera.value === 'auto' ? null : settingCamera.value;
         const model = settingModel.value;
 
-        // Sync Global State
-        await invoke("toggle_system", { enabled: settingSystemEnabled.checked });
 
         await invoke("update_config", { 
             threshold, 
@@ -301,18 +295,14 @@ async function updateSystemStatus() {
 
 // --- ENROLLMENT ---
 enrollBtn.addEventListener('click', async () => {
-    const user = usernameInput.value.trim();
-    if (!user) {
-        showToast("Please enter a username", "error");
-        return;
-    }
+    const user = usernameInput.value.trim() || "default";
 
     enrollBtn.disabled = true;
     showToast(`Starting capture for ${user}...`, "info");
 
     try {
         await invoke("run_biometric_command", { cmd: "ENROLL", user });
-        showToast(`Enrollment successful for ${user}!`);
+        showToast(user === "default" ? "Enrollment successful!" : `Enrollment successful for ${user}!`);
         loadIdentities();
     } catch (err) {
         showToast(`Biometric Error: ${err}`, "error");
