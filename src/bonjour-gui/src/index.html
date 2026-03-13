@@ -309,24 +309,17 @@
         <div class="credits-card">
           <div class="credits-header">
             <span class="app-name">Linux Bonjour</span>
-            <span class="app-version">v2.1.0-Rust</span>
+            <span class="app-version">v2.3.7</span>
           </div>
           <div class="developer-section">
-            <h3>Developers</h3>
-            <p>Hewage NKM & AI</p>
+            <p>Developed by <strong>Nadun Malwenna</strong></p>
           </div>
           <div class="about-section">
-            <h3>System Status</h3>
-            <p>A memory-safe biometric authentication system for Linux, written in Rust and powered by ONNX Runtime.</p>
+            <p>A professional, memory-safe biometric authentication system for Linux. Built with performance and user privacy as core principles.</p>
           </div>
-          <div class="about-section" style="margin-top: 24px;">
-            <h3>Hardware Security & TPM</h3>
-            <p style="font-size: 14px; text-align: justify; color: var(--text-muted);">
-              During the <code>.deb</code> installation, the auto-setup script actively hunts for a Trusted Platform Module (<code>/dev/tpmrm0</code> or <code>/dev/tpm0</code>) on your motherboard.
-              <br><br>
-              If a TPM 2.0 chip is detected, the installer will automatically configure <code>udev</code> rules allowing the <code>linux-bonjour</code> daemon to securely interface with it. The TPM is then used to generate a non-exportable hardware-bound encryption key. This means your facial signatures are encrypted using your physical motherboard, rendering them entirely useless if an attacker attempts to extract them and decrypt them on another machine.
-              <br><br>
-              If a TPM is unavailable, the system safely falls back to a software-based machine-ID encryption cipher, retaining AES-GCM data-at-rest protection.
+          <div class="about-section" style="margin-top: 24px; border-top: 1px solid var(--glass-border); padding-top: 24px;">
+            <p style="font-size: 14px; color: var(--text-muted);">
+              Linux Bonjour provides a seamless Face ID experience across the entire system, including Login, sudo, and administrative dialogues.
             </p>
           </div>
         </div>
