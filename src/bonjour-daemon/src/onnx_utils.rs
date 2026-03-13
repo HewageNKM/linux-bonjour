@@ -255,4 +255,19 @@ impl InferenceEngine {
         let mouth_width = ((landmarks[3][0] - landmarks[4][0]).powi(2) + (landmarks[3][1] - landmarks[4][1]).powi(2)).sqrt();
         if eye_dist > 0.0 { mouth_width / eye_dist } else { 0.0 }
     }
+
+    pub fn average_embeddings(embeddings: &[Vec<f32>]) -> Vec<f32> {
+        if embeddings.is_empty() { return Vec::new(); }
+        let dim = embeddings[0].len();
+        let mut avg = vec![0.0f32; dim];
+        for emb in embeddings {
+            for (i, &v) in emb.iter().enumerate() {
+                if i < dim { avg[i] += v; }
+            }
+        }
+        for v in avg.iter_mut() {
+            *v /= embeddings.len() as f32;
+        }
+        avg
+    }
 }

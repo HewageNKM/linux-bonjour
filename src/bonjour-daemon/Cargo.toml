@@ -31,4 +31,5 @@ zbus = "3.14" # For DBus integration
 home = "0.5"
 pxfm = "0.1"
 moxcms = "0.8.1"
+v4l = "0.14"
 tss-esapi = "7.5"

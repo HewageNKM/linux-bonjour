@@ -159,7 +159,7 @@ unsafe fn prompt_user(pamh: *const PamHandle, text: &str) -> Option<String> {
     None
 }
 
-#[unsafe(no_mangle)]
+#[no_mangle]
 pub unsafe extern "C" fn pam_sm_authenticate(
     pamh: *mut PamHandle,
     _flags: libc::c_int,
@@ -342,7 +342,7 @@ fn perform_verify(pamh: *mut PamHandle, user: &str, bypass_consent: bool, attemp
     }
 }
 
-#[unsafe(no_mangle)]
+#[no_mangle]
 pub unsafe extern "C" fn pam_sm_setcred(
     _pamh: *mut PamHandle,
     _flags: libc::c_int,

@@ -7,17 +7,19 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::Mutex;
 use nokhwa::utils::{RequestedFormat, RequestedFormatType};
-use nokhwa::pixel_format::RgbFormat;
+use nokhwa::pixel_format::{RgbFormat, LumaFormat};
 use nokhwa::Camera;
 use serde::{Serialize, Deserialize};
 use anyhow::Result;
-use image::DynamicImage;
+use image::{DynamicImage, ImageBuffer, Luma};
 use onnx_utils::InferenceEngine;
 use signature_utils::SignatureStore;
 use ipc_utils::{UdsServer, DaemonRequest, DaemonResponse, CameraInfo};
 use security_utils::{EncryptionProvider, PlainProvider, SoftwareProvider, TpmProvider};
 use base64::{Engine as _, engine::general_purpose};
 use std::io::Cursor;
+use v4l::io::traits::CaptureStream;
+use v4l::video::Capture;
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
 struct DaemonConfig {
@@ -33,6 +35,55 @@ struct DaemonConfig {
     enable_login: bool,
     enable_sudo: bool,
     enable_polkit: bool,
+}
+
+pub struct V4lCore {
+    pub stream: v4l::io::mmap::Stream<'static>,
+    pub device: v4l::Device,
+}
+
+fn open_v4l_device(index: usize) -> Option<V4lCore> {
+    use v4l::prelude::*;
+    use v4l::format::FourCC;
+    use v4l::buffer::Type;
+    use v4l::io::mmap::Stream;
+
+    let path = format!("/dev/video{}", index);
+    eprintln!("🔍 [Bonjour] Attempting direct V4L2 capture on {}...", path);
+    
+    let dev = Device::with_path(&path).ok()?;
+    
+    let mut fmt = dev.format().ok()?;
+    fmt.fourcc = FourCC::new(b"GREY");
+    fmt.width = 640;
+    fmt.height = 360;
+    let _ = dev.set_format(&fmt);
+
+    let stream = unsafe {
+        if let Ok(s) = Stream::with_buffers(&dev, Type::VideoCapture, 4) {
+             std::mem::transmute::<Stream<'_>, Stream<'static>>(s)
+        } else {
+            return None;
+        }
+    };
+    
+    Some(V4lCore { stream, device: dev })
+}
+
+enum CaptureDevice {
+    Rgb(Camera),
+    Luma(Camera),
+    V4l(V4lCore),
+}
+
+impl CaptureDevice {
+    fn stop(&mut self) -> Result<()> {
+        match self {
+            CaptureDevice::Rgb(c) => c.stop_stream().map_err(|e| anyhow::anyhow!(e)),
+            CaptureDevice::Luma(c) => c.stop_stream().map_err(|e| anyhow::anyhow!(e)),
+            CaptureDevice::V4l(_v) => Ok(()), // Stream drops automatically
+        }
+    }
 }
 
 impl Default for DaemonConfig {
@@ -493,7 +544,7 @@ async fn main() -> Result<()> {
                     }).await;
                 },
                 DaemonRequest::Verify { user, bypass_consent } => {
-                    let cfg = config.lock().await;
+                    let cfg = config.lock().await.clone();
                     
                     if !enabled.load(Ordering::SeqCst) {
                         println!("🚫 [Bonjour] System is globally DISABLED. Skipping verification.");
@@ -521,138 +572,20 @@ async fn main() -> Result<()> {
                     let liveness_threshold = cfg.liveness_threshold;
                     let smile_required = cfg.smile_required;
 
-                    // Search Loop: Try to recognize for up to 3 seconds
-                    let start_time = std::time::Instant::now();
-                    let timeout = std::time::Duration::from_secs(3);
-                    let mut last_error = "No face detected".to_string();
-
-                    let mut iteration = 0;
-                    while start_time.elapsed() < timeout {
-                        iteration += 1;
-                        // Send real-time scanning feedback less frequently
-                        if iteration % 5 == 1 {
-                            let _ = tx.send(DaemonResponse::Scanning { 
-                                msg: "Scanning...".to_string() 
-                            }).await;
-                        }
-
-                        let capture_result: Result<DynamicImage> = (|| {
-                            let devices = nokhwa::query(nokhwa::utils::ApiBackend::Video4Linux)?;
-                            if devices.is_empty() { anyhow::bail!("No camera found"); }
+                    std::thread::spawn(move || {
+                        // 1. Initialize Camera Once
+                        let capture_dev = (|| {
+                            let devices = nokhwa::query(nokhwa::utils::ApiBackend::Video4Linux).ok()?;
+                            let mut filtered_devices: Vec<_> = devices.iter()
+                                .filter(|d| {
+                                    !d.human_name().to_lowercase().contains("metadata")
+                                })
+                                .cloned()
+                                .collect();
                             
-                            let mut sorted_devices = devices.clone();
-                            sorted_devices.sort_by_key(|d| {
-                                if let Some(ref path) = camera_path_override {
-                                    if d.human_name() == *path || d.index().to_string() == *path {
-                                        return 0;
-                                    }
-                                }
-                                let name = d.human_name().to_lowercase();
-                                if name.contains("ir") || name.contains("infrared") { 1 } else { 2 }
-                            });
+                            if filtered_devices.is_empty() { return None; }
 
-                            for dev in sorted_devices {
-                                let format_strategies = vec![RequestedFormatType::AbsoluteHighestResolution, RequestedFormatType::None];
-                                for strategy in format_strategies {
-                                    let format = RequestedFormat::new::<RgbFormat>(strategy);
-                                    if let Ok(mut camera) = Camera::with_backend(dev.index().clone(), format, nokhwa::utils::ApiBackend::Video4Linux) {
-                                        if camera.open_stream().is_ok() {
-                                            for _ in 0..2 { let _ = camera.frame(); }
-                                            if let Ok(frame) = camera.frame() {
-                                                let dyn_img = frame.decode_image::<RgbFormat>()?;
-                                                let _ = camera.stop_stream();
-                                                return Ok(DynamicImage::ImageRgb8(dyn_img));
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            Err(anyhow::anyhow!("Capture failed"))
-                        })();
-
-                        match capture_result {
-                            Ok(dyn_img) => {
-                                let mut engine_lock = engine.lock().await;
-                                if let Ok(detections) = engine_lock.detect_faces(&dyn_img) {
-                                    if detections.is_empty() {
-                                        last_error = "No face detected".to_string();
-                                    } else {
-                                        let aligned = engine_lock.align_face(&dyn_img, &detections[0].landmarks);
-                                        if let Ok(embedding) = engine_lock.get_face_embedding(&aligned) {
-                                            // 1. Try 1:1 match with requested user
-                                            let mut matched_user = None;
-                                            if let Ok(saved_embedding) = store.load_signature(&user) {
-                                                let score = SignatureStore::cosine_similarity(&embedding, &saved_embedding);
-                                                if score > threshold {
-                                                    matched_user = Some((user.clone(), score));
-                                                }
-                                            }
-
-                                            // 2. Fallback to 1:N Identification if requested user didn't match
-                                            if matched_user.is_none() {
-                                                if let Ok(Some((identified_user, score))) = store.identify_user(&embedding, threshold) {
-                                                    println!("🔍 [Bonjour] Identified as: {} (score: {:.2})", identified_user, score);
-                                                    matched_user = Some((identified_user, score));
-                                                }
-                                            }
-
-                                            if let Some((final_user, score)) = matched_user {
-                                                let liveness_score = detections[0].liveness_score;
-                                                if !smile_required || liveness_score > liveness_threshold {
-                                                    println!("✅ [Bonjour] Success: {} (score: {:.2})", final_user, score);
-                                                    let _ = tx.send(DaemonResponse::Success { user: final_user }).await;
-                                                    return;
-                                                } else {
-                                                    last_error = format!("Liveness failed ({:.2})", liveness_score);
-                                                }
-                                            } else {
-                                                last_error = "No matching identity found".to_string();
-                                            }
-                                        }
-                                    }
-                                }
-                            },
-                            Err(e) => last_error = e.to_string(),
-                        }
-                        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
-                    }
-
-                    println!("❌ [Bonjour] Verification timeout");
-                    let _ = tx.send(DaemonResponse::Failure { reason: format!("Timeout: {}", last_error) }).await;
-                },
-                DaemonRequest::Enroll { user } => {
-                    let (engine, store) = {
-                        let ctx = context.lock().await;
-                        (Arc::clone(&ctx.engine), Arc::clone(&ctx.store))
-                    };
-
-                    let camera_path_override = {
-                        let cfg = config.lock().await;
-                        cfg.camera_path.clone()
-                    };
-                    
-                    let mut collected_embeddings: Vec<Vec<f32>> = Vec::new();
-                    let target_scans = 5;
-                    
-                    println!("🚀 Starting interactive enrollment for user: {}", user);
-                    cancel_signal.store(false, Ordering::SeqCst);
-
-                    let mut last_processed_time = std::time::Instant::now();
-                    
-                    // Main scanning loop
-                    for _attempt in 0..100 { // Max attempts to prevent infinite loop
-                        if cancel_signal.load(Ordering::SeqCst) {
-                            println!("🛑 Enrollment cancelled via signal");
-                            return;
-                        }
-                        if collected_embeddings.len() >= target_scans { break; }
-
-                        let capture_result: Result<DynamicImage> = (|| {
-                            let devices = nokhwa::query(nokhwa::utils::ApiBackend::Video4Linux)?;
-                            if devices.is_empty() { anyhow::bail!("No camera found"); }
-                            
-                            let mut sorted_devices = devices.clone();
-                            sorted_devices.sort_by_key(|d| {
+                            filtered_devices.sort_by_key(|d| {
                                 if let Some(ref path) = camera_path_override {
                                     if d.human_name() == *path || d.index().to_string() == *path { return 0; }
                                 }
@@ -660,89 +593,378 @@ async fn main() -> Result<()> {
                                 if name.contains("ir") || name.contains("infrared") { 1 } else { 2 }
                             });
 
-                            for dev in sorted_devices {
-                                let format = RequestedFormat::new::<RgbFormat>(RequestedFormatType::AbsoluteHighestResolution);
-                                if let Ok(mut camera) = Camera::with_backend(dev.index().clone(), format, nokhwa::utils::ApiBackend::Video4Linux) {
-                                    if camera.open_stream().is_ok() {
-                                        for _ in 0..2 { let _ = camera.frame(); }
-                                        if let Ok(frame) = camera.frame() {
-                                            let dyn_img = frame.decode_image::<RgbFormat>()?;
-                                            let _ = camera.stop_stream();
-                                            return Ok(DynamicImage::ImageRgb8(dyn_img));
+                            for dev in filtered_devices {
+                                let dev_name = dev.human_name();
+                                let dev_index = dev.index().clone();
+                                let is_ir = dev_name.to_lowercase().contains("ir") || dev_name.to_lowercase().contains("infrared");
+
+                                eprintln!("📷 [Bonjour] Checking device: {} [{}] (IR: {})", dev_name, dev_index, is_ir);
+
+                                if is_ir {
+                                    eprintln!("🔍 [Bonjour] Processing IR device [{}]. Bypassing standard probe.", dev_index);
+                                    
+                                    // 1. HARD FORCED ATTEMPT: 640x360 Luma (ASUS ZenBook standard)
+                                    let forced_format = RequestedFormat::new::<LumaFormat>(RequestedFormatType::Exact(nokhwa::utils::CameraFormat::new(
+                                        nokhwa::utils::Resolution::new(640, 360), nokhwa::utils::FrameFormat::YUYV, 30)));
+                                    
+                                    eprintln!("   - Attempting [FORCED LUMA 640x360]...");
+                                    match Camera::with_backend(dev_index.clone(), forced_format, nokhwa::utils::ApiBackend::Video4Linux) {
+                                        Ok(mut cam) => {
+                                            if let Ok(_) = cam.open_stream() {
+                                                eprintln!("     ✅ SUCCESS! IR Hard-probe opened.");
+                                                for _ in 0..3 { let _ = cam.frame(); }
+                                                return Some(CaptureDevice::Luma(cam));
+                                            } else {
+                                                eprintln!("     ❌ IR Hard-probe open_stream failed.");
+                                            }
+                                        },
+                                        Err(e) => eprintln!("     ❌ IR Hard-probe with_backend failed: {}", e),
+                                    }
+
+                                    // 2. Try Luma with standard strategies
+                                    for strategy in [RequestedFormatType::None, RequestedFormatType::AbsoluteHighestResolution] {
+                                        let format = RequestedFormat::new::<LumaFormat>(strategy.clone());
+                                        eprintln!("   - Attempting [Luma] with strategy {:?}", strategy);
+                                        if let Ok(mut cam) = Camera::with_backend(dev_index.clone(), format, nokhwa::utils::ApiBackend::Video4Linux) {
+                                            if cam.open_stream().is_ok() {
+                                                eprintln!("     ✅ SUCCESS! [Luma] strategy opened.");
+                                                return Some(CaptureDevice::Luma(cam));
+                                            }
+                                        }
+                                    }
+
+                                    // 3. NATIVE V4L2 ATTEMPT (The Fix for 'Failed to Fufill')
+                                    eprintln!("   - Attempting [Direct V4L2 GREY]...");
+                                    if let nokhwa::utils::CameraIndex::Index(idx) = dev_index {
+                                        if let Some(core) = open_v4l_device(idx as usize) {
+                                            eprintln!("     ✅ SUCCESS! Direct V4L2 capture active.");
+                                            return Some(CaptureDevice::V4l(core));
+                                        }
+                                    }
+
+                                    // 4. Last resort IR: Try RGB fallback on same node
+                                    let rgb_fallback = RequestedFormat::new::<RgbFormat>(RequestedFormatType::None);
+                                    eprintln!("   - Attempting [RGB Fallback] on IR node...");
+                                    if let Ok(mut cam) = Camera::with_backend(dev_index.clone(), rgb_fallback, nokhwa::utils::ApiBackend::Video4Linux) {
+                                        if cam.open_stream().is_ok() {
+                                            eprintln!("     ✅ SUCCESS! [RGB Fallback] opened IR node.");
+                                            return Some(CaptureDevice::Rgb(cam));
+                                        }
+                                    }
+                                } else {
+                                    // Regular RGB Probing
+                                    for strategy in [RequestedFormatType::AbsoluteHighestResolution, RequestedFormatType::None] {
+                                        let format = RequestedFormat::new::<RgbFormat>(strategy.clone());
+                                        eprintln!("🔍 [Bonjour] Opening RGB camera [{}] with strategy {:?}", dev_index, strategy);
+                                        match Camera::with_backend(dev_index.clone(), format, nokhwa::utils::ApiBackend::Video4Linux) {
+                                            Ok(mut cam) => {
+                                                if cam.open_stream().is_ok() {
+                                                    eprintln!("✅ [Bonjour] Opened RGB camera [{}]", dev_index);
+                                                    for _ in 0..3 { let _ = cam.frame(); }
+                                                    return Some(CaptureDevice::Rgb(cam));
+                                                }
+                                            },
+                                            Err(e) => eprintln!("⚠️ [Bonjour] Node [{}] initialization failed: {}", dev_index, e),
                                         }
                                     }
                                 }
                             }
-                            Err(anyhow::anyhow!("Capture failed"))
+                            None
                         })();
 
-                        if let Ok(dyn_img) = capture_result {
-                            // 1. Encode frame for GUI
-                            let mut buf = Vec::new();
-                            let mut cursor = Cursor::new(&mut buf);
-                            // Resize for faster transfer if needed, but let's try raw first or modestly resized
-                            let small_img = dyn_img.thumbnail(320, 240);
-                            if let Ok(_) = small_img.write_to(&mut cursor, image::ImageFormat::Jpeg) {
-                                let b64 = general_purpose::STANDARD.encode(&buf);
-                                let progress = collected_embeddings.len() as f32 / target_scans as f32;
-                                let msg = if collected_embeddings.is_empty() {
-                                    "Align your face to the center...".to_string()
-                                } else {
-                                    format!("Capturing... ({} of {})", collected_embeddings.len() + 1, target_scans)
-                                };
+                        if capture_dev.is_none() {
+                            let _ = tx.blocking_send(DaemonResponse::Failure { reason: "Could not open any camera device".to_string() });
+                            return;
+                        }
+                        let mut capture_dev = capture_dev.unwrap();
 
-                                if let Err(_) = tx.send(DaemonResponse::EnrollmentFrame { 
-                                    base64_image: b64, 
-                                    message: msg,
-                                    progress
-                                }).await {
-                                    println!("🔌 Enrollment interrupted (Client disconnected)");
-                                    return;
-                                }
+                        let start_time = std::time::Instant::now();
+                        let timeout = std::time::Duration::from_secs(3);
+                        let mut last_error = "No face detected".to_string();
+
+                        let mut iteration = 0;
+                        while start_time.elapsed() < timeout {
+                            iteration += 1;
+                            if iteration % 5 == 1 {
+                                let _ = tx.blocking_send(DaemonResponse::Scanning { 
+                                    msg: "Scanning...".to_string() 
+                                });
                             }
 
-                            // 2. Process face
-                            if last_processed_time.elapsed() > std::time::Duration::from_millis(500) {
-                                let mut engine_lock = engine.lock().await;
-                                if let Ok(detections) = engine_lock.detect_faces(&dyn_img) {
-                                    if !detections.is_empty() {
-                                        let aligned = engine_lock.align_face(&dyn_img, &detections[0].landmarks);
-                                        if let Ok(embedding) = engine_lock.get_face_embedding(&aligned) {
-                                            collected_embeddings.push(embedding);
-                                            println!("📍 Collected scan {}/{}", collected_embeddings.len(), target_scans);
+                            let capture_result: Result<DynamicImage> = match &mut capture_dev {
+                                CaptureDevice::Rgb(cam) => {
+                                    cam.frame().map_err(|e| anyhow::anyhow!(e)).and_then(|f| {
+                                        f.decode_image::<RgbFormat>().map(DynamicImage::ImageRgb8).map_err(|e| anyhow::anyhow!(e))
+                                    })
+                                },
+                                CaptureDevice::Luma(cam) => {
+                                    cam.frame().map_err(|e| anyhow::anyhow!(e)).and_then(|f| {
+                                        f.decode_image::<LumaFormat>().map(|l| DynamicImage::ImageRgb8(DynamicImage::ImageLuma8(l).to_rgb8())).map_err(|e| anyhow::anyhow!(e))
+                                    })
+                                },
+                                CaptureDevice::V4l(core) => {
+                                    core.stream.next().map_err(|e| anyhow::anyhow!(e)).map(|(data, _meta)| {
+                                        let luma = ImageBuffer::<Luma<u8>, _>::from_raw(640, 360, data.to_vec()).unwrap();
+                                        DynamicImage::ImageRgb8(DynamicImage::ImageLuma8(luma).to_rgb8())
+                                    })
+                                }
+                            };
+
+                            match capture_result {
+                                Ok(dyn_img) => {
+                                    let mut engine_lock = engine.blocking_lock();
+                                    if let Ok(detections) = engine_lock.detect_faces(&dyn_img) {
+                                        if detections.is_empty() {
+                                            last_error = "No face detected".to_string();
+                                        } else {
+                                            let aligned = engine_lock.align_face(&dyn_img, &detections[0].landmarks);
+                                            if let Ok(embedding) = engine_lock.get_face_embedding(&aligned) {
+                                                let mut matched_user = None;
+                                                if let Ok(saved_embedding) = store.load_signature(&user) {
+                                                    let score = SignatureStore::cosine_similarity(&embedding, &saved_embedding);
+                                                    if score > threshold {
+                                                        matched_user = Some((user.clone(), score));
+                                                    }
+                                                }
+
+                                                if matched_user.is_none() {
+                                                    if let Ok(Some((identified_user, score))) = store.identify_user(&embedding, threshold) {
+                                                        println!("🔍 [Bonjour] Identified as: {} (score: {:.2})", identified_user, score);
+                                                        matched_user = Some((identified_user, score));
+                                                    }
+                                                }
+
+                                                if let Some((final_user, score)) = matched_user {
+                                                    let liveness_score = detections[0].liveness_score;
+                                                    if !smile_required || liveness_score > liveness_threshold {
+                                                        println!("✅ [Bonjour] Success: {} (score: {:.2})", final_user, score);
+                                                        let _ = capture_dev.stop();
+                                                        let _ = tx.blocking_send(DaemonResponse::Success { user: final_user });
+                                                        return;
+                                                    } else {
+                                                        last_error = format!("Liveness failed ({:.2})", liveness_score);
+                                                    }
+                                                } else {
+                                                    last_error = "No matching identity found".to_string();
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                Err(e) => last_error = e.to_string(),
+                            }
+                            std::thread::sleep(std::time::Duration::from_millis(100));
+                        }
+
+                        println!("❌ [Bonjour] Verification timeout: {}", last_error);
+                        let _ = capture_dev.stop();
+                        let _ = tx.blocking_send(DaemonResponse::Failure { reason: format!("Timeout: {}", last_error) });
+                    });
+                },
+                DaemonRequest::Enroll { user } => {
+                    let cfg = config.lock().await.clone();
+                    let (engine, store) = {
+                        let ctx = context.lock().await;
+                        (Arc::clone(&ctx.engine), Arc::clone(&ctx.store))
+                    };
+
+                    let camera_path_override = cfg.camera_path.clone();
+                    let cancel_signal = Arc::clone(&cancel_signal);
+                    
+                    std::thread::spawn(move || {
+                        let mut collected_embeddings: Vec<Vec<f32>> = Vec::new();
+                        let target_scans = 5;
+                        
+                        println!("🚀 Starting interactive enrollment for user: {}", user);
+                        cancel_signal.store(false, Ordering::SeqCst);
+
+                        let capture_dev = (|| {
+                            let devices = nokhwa::query(nokhwa::utils::ApiBackend::Video4Linux).ok()?;
+                            let mut filtered_devices: Vec<_> = devices.iter()
+                                .filter(|d| {
+                                    !d.human_name().to_lowercase().contains("metadata")
+                                })
+                                .cloned()
+                                .collect();
+                            
+                            if filtered_devices.is_empty() { return None; }
+
+                            filtered_devices.sort_by_key(|d| {
+                                if let Some(ref path) = camera_path_override {
+                                    if d.human_name() == *path || d.index().to_string() == *path { return 0; }
+                                }
+                                let name = d.human_name().to_lowercase();
+                                if name.contains("ir") || name.contains("infrared") { 1 } else { 2 }
+                            });
+
+                            for dev in filtered_devices {
+                                let dev_name = dev.human_name();
+                                let dev_index = dev.index().clone();
+                                let is_ir = dev_name.to_lowercase().contains("ir") || dev_name.to_lowercase().contains("infrared");
+
+                                eprintln!("📷 [Bonjour] Checking device: {} [{}] (IR: {})", dev_name, dev_index, is_ir);
+
+                                if is_ir {
+                                    eprintln!("🔍 [Bonjour] Processing IR device [{}]. Bypassing standard probe.", dev_index);
+                                    
+                                    // 1. HARD FORCED ATTEMPT: 640x360 Luma
+                                    let forced_format = RequestedFormat::new::<LumaFormat>(RequestedFormatType::Exact(nokhwa::utils::CameraFormat::new(
+                                        nokhwa::utils::Resolution::new(640, 360), nokhwa::utils::FrameFormat::YUYV, 30)));
+                                    
+                                    eprintln!("   - Attempting [FORCED LUMA 640x360]...");
+                                    match Camera::with_backend(dev_index.clone(), forced_format, nokhwa::utils::ApiBackend::Video4Linux) {
+                                        Ok(mut cam) => {
+                                            if let Ok(_) = cam.open_stream() {
+                                                eprintln!("     ✅ SUCCESS! IR Hard-probe opened.");
+                                                for _ in 0..3 { let _ = cam.frame(); }
+                                                return Some(CaptureDevice::Luma(cam));
+                                            } else {
+                                                eprintln!("     ❌ IR Hard-probe open_stream failed.");
+                                            }
+                                        },
+                                        Err(e) => eprintln!("     ❌ IR Hard-probe with_backend failed: {}", e),
+                                    }
+
+                                    // 2. Try Luma with standard strategies
+                                    for strategy in [RequestedFormatType::None, RequestedFormatType::AbsoluteHighestResolution] {
+                                        let format = RequestedFormat::new::<LumaFormat>(strategy.clone());
+                                        eprintln!("   - Attempting [Luma] with strategy {:?}", strategy);
+                                        if let Ok(mut cam) = Camera::with_backend(dev_index.clone(), format, nokhwa::utils::ApiBackend::Video4Linux) {
+                                            if cam.open_stream().is_ok() {
+                                                eprintln!("     ✅ SUCCESS! [Luma] strategy opened.");
+                                                return Some(CaptureDevice::Luma(cam));
+                                            }
+                                        }
+                                    }
+
+                                    // 3. NATIVE V4L2 ATTEMPT (The Fix for 'Failed to Fufill')
+                                    eprintln!("   - Attempting [Direct V4L2 GREY]...");
+                                    if let nokhwa::utils::CameraIndex::Index(idx) = dev_index {
+                                        if let Some(core) = open_v4l_device(idx as usize) {
+                                            eprintln!("     ✅ SUCCESS! Direct V4L2 capture active.");
+                                            return Some(CaptureDevice::V4l(core));
+                                        }
+                                    }
+
+                                    // 4. Last resort IR: Try RGB fallback
+                                    let rgb_fallback = RequestedFormat::new::<RgbFormat>(RequestedFormatType::None);
+                                    if let Ok(mut cam) = Camera::with_backend(dev_index.clone(), rgb_fallback, nokhwa::utils::ApiBackend::Video4Linux) {
+                                        if cam.open_stream().is_ok() {
+                                            eprintln!("     ✅ SUCCESS! [RGB Fallback] opened IR node.");
+                                            return Some(CaptureDevice::Rgb(cam));
+                                        }
+                                    }
+                                } else {
+                                    // Regular RGB
+                                    for strategy in [RequestedFormatType::AbsoluteHighestResolution, RequestedFormatType::None] {
+                                        let format = RequestedFormat::new::<RgbFormat>(strategy.clone());
+                                        eprintln!("🔍 [Bonjour] Opening RGB camera [{}] with strategy {:?}", dev_index, strategy);
+                                        match Camera::with_backend(dev_index.clone(), format, nokhwa::utils::ApiBackend::Video4Linux) {
+                                            Ok(mut cam) => {
+                                                if cam.open_stream().is_ok() {
+                                                    eprintln!("✅ [Bonjour] Opened RGB camera [{}]", dev_index);
+                                                    for _ in 0..3 { let _ = cam.frame(); }
+                                                    return Some(CaptureDevice::Rgb(cam));
+                                                }
+                                            },
+                                            Err(e) => eprintln!("⚠️ [Bonjour] Node [{}] initialization failed: {}", dev_index, e),
                                         }
                                     }
                                 }
-                                last_processed_time = std::time::Instant::now();
                             }
-                        }
-                        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
-                    }
+                            None
+                        })();
 
-                    if collected_embeddings.len() >= target_scans {
-                        // AVERAGE EMBEDDINGS
-                        let dim = collected_embeddings[0].len();
-                        let mut avg_embedding = vec![0.0f32; dim];
-                        for emb in &collected_embeddings {
-                            for i in 0..dim {
-                                avg_embedding[i] += emb[i];
+                        if capture_dev.is_none() {
+                            let _ = tx.blocking_send(DaemonResponse::Failure { reason: "Could not open camera device for enrollment".to_string() });
+                            return;
+                        }
+                        let mut capture_dev = capture_dev.unwrap();
+
+                        let mut last_processed_time = std::time::Instant::now();
+                        
+                        for _attempt in 0..200 {
+                            if cancel_signal.load(Ordering::SeqCst) {
+                                println!("🛑 Enrollment cancelled via signal");
+                                let _ = capture_dev.stop();
+                                return;
                             }
-                        }
-                        for i in 0..dim {
-                            avg_embedding[i] /= collected_embeddings.len() as f32;
+                            if collected_embeddings.len() >= target_scans { break; }
+
+                            let capture_result: Result<DynamicImage> = match &mut capture_dev {
+                                CaptureDevice::Rgb(cam) => {
+                                    cam.frame().map_err(|e| anyhow::anyhow!(e)).and_then(|f| {
+                                        f.decode_image::<RgbFormat>().map(DynamicImage::ImageRgb8).map_err(|e| anyhow::anyhow!(e))
+                                    })
+                                },
+                                CaptureDevice::Luma(cam) => {
+                                    cam.frame().map_err(|e| anyhow::anyhow!(e)).and_then(|f| {
+                                        f.decode_image::<LumaFormat>().map(|l| DynamicImage::ImageRgb8(DynamicImage::ImageLuma8(l).to_rgb8())).map_err(|e| anyhow::anyhow!(e))
+                                    })
+                                },
+                                CaptureDevice::V4l(core) => {
+                                    core.stream.next().map_err(|e| anyhow::anyhow!(e)).map(|(data, _meta)| {
+                                        let luma = ImageBuffer::<Luma<u8>, _>::from_raw(640, 360, data.to_vec()).unwrap();
+                                        DynamicImage::ImageRgb8(DynamicImage::ImageLuma8(luma).to_rgb8())
+                                    })
+                                }
+                            };
+
+                            if let Ok(dyn_img) = capture_result {
+                                let mut buf = Vec::new();
+                                let mut cursor = Cursor::new(&mut buf);
+                                let small_img = dyn_img.thumbnail(320, 240);
+                                if small_img.write_to(&mut cursor, image::ImageFormat::Jpeg).is_ok() {
+                                    let b64 = general_purpose::STANDARD.encode(&buf);
+                                    let progress = collected_embeddings.len() as f32 / target_scans as f32;
+                                    let msg = if collected_embeddings.is_empty() {
+                                        "Align your face to the center...".to_string()
+                                    } else {
+                                        format!("Capturing... ({} of {})", collected_embeddings.len() + 1, target_scans)
+                                    };
+
+                                    if let Err(_) = tx.blocking_send(DaemonResponse::EnrollmentFrame { 
+                                        base64_image: b64, 
+                                        message: msg,
+                                        progress
+                                    }) {
+                                        println!("🔌 Enrollment interrupted (Client disconnected)");
+                                        let _ = capture_dev.stop();
+                                        return;
+                                    }
+                                }
+
+                                if last_processed_time.elapsed() > std::time::Duration::from_millis(500) {
+                                    let mut engine_lock = engine.blocking_lock();
+                                    if let Ok(detections) = engine_lock.detect_faces(&dyn_img) {
+                                        if !detections.is_empty() {
+                                            let aligned = engine_lock.align_face(&dyn_img, &detections[0].landmarks);
+                                            if let Ok(embedding) = engine_lock.get_face_embedding(&aligned) {
+                                                collected_embeddings.push(embedding);
+                                                println!("📍 Collected scan {}/{}", collected_embeddings.len(), target_scans);
+                                            }
+                                        }
+                                    }
+                                    last_processed_time = std::time::Instant::now();
+                                }
+                            }
+                            
+                            std::thread::sleep(std::time::Duration::from_millis(50));
                         }
 
-                        // Save the averaged signature
-                        match store.save_signature(&user, &avg_embedding) {
-                            Ok(_) => { 
+                        if collected_embeddings.len() >= target_scans {
+                            let averaged = InferenceEngine::average_embeddings(&collected_embeddings);
+                            if store.save_signature(&user, &averaged).is_ok() {
                                 println!("✅ Averaged enrollment success for user: {}", user);
-                                let _ = tx.send(DaemonResponse::Success { user: user.clone() }).await; 
-                            },
-                            Err(e) => { let _ = tx.send(DaemonResponse::Failure { reason: e.to_string() }).await; },
+                                let _ = capture_dev.stop();
+                                let _ = tx.blocking_send(DaemonResponse::Success { user: user.clone() });
+                                return;
+                            }
                         }
-                    } else {
-                        let _ = tx.send(DaemonResponse::Failure { reason: "Enrollment timed out or incomplete".to_string() }).await;
-                    }
+                        
+                        let _ = capture_dev.stop();
+                        let _ = tx.blocking_send(DaemonResponse::Failure { reason: "Enrollment failed or timed out".to_string() });
+                    });
                 },
             }
         }
