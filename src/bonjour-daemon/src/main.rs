@@ -145,32 +145,6 @@ impl DaemonConfig {
     }
 }
 
-fn run_zenity_approval(user: &str) -> bool {
-    println!("🖥️ Attempting graphical authorization for user: {}", user);
-    let xauth = format!("/home/{}/.Xauthority", user);
-    let status = std::process::Command::new("sudo")
-        .args([
-            "-u", user,
-            "DISPLAY=:0",
-            &format!("XAUTHORITY={}", xauth),
-            "zenity",
-            "--question",
-            "--title=Linux Bonjour",
-            "--text=🐧 Allow face recognition authentication?",
-            "--timeout=15",
-            "--ok-label=Allow",
-            "--cancel-label=Deny"
-        ])
-        .status();
-    
-    match status {
-        Ok(s) => s.success(),
-        Err(_) => {
-            println!("⚠️ Zenity dialog failed to launch (No X11 context?)");
-            false
-        }
-    }
-}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -552,12 +526,10 @@ async fn main() -> Result<()> {
                         return;
                     }
 
-                    if !bypass_consent && cfg.ask_permission {
-                        if !run_zenity_approval(&user) {
-                            println!("🚫 Authorization denied or Zenity failed for user: {}", user);
-                            let _ = tx.send(DaemonResponse::Info { msg: "CONSENT_REQUIRED".to_string() }).await;
-                            return;
-                        }
+                    if cfg.ask_permission && !bypass_consent {
+                        println!("⚠️ [Bonjour] Permission check required. Triggering PAM console prompt.");
+                        let _ = tx.send(DaemonResponse::Info { msg: "CONSENT_REQUIRED".to_string() }).await;
+                        return;
                     }
 
                     println!("🔍 IPC: Verification request for user: {}", user);
@@ -569,8 +541,10 @@ async fn main() -> Result<()> {
 
                     let camera_path_override = cfg.camera_path.clone();
                     let threshold = cfg.threshold;
+                    let liveness_enabled = cfg.liveness_enabled;
                     let liveness_threshold = cfg.liveness_threshold;
                     let smile_required = cfg.smile_required;
+                    let autocapture = cfg.autocapture;
 
                     std::thread::spawn(move || {
                         // 1. Initialize Camera Once
@@ -729,20 +703,38 @@ async fn main() -> Result<()> {
 
                                                 if matched_user.is_none() {
                                                     if let Ok(Some((identified_user, score))) = store.identify_user(&embedding, threshold) {
-                                                        println!("🔍 [Bonjour] Identified as: {} (score: {:.2})", identified_user, score);
+                                                        println!("🔍 [Bonjour] Identified as: {} (score: {:.2}, liveness: {:.2})", identified_user, score, detections[0].liveness_score);
                                                         matched_user = Some((identified_user, score));
                                                     }
                                                 }
 
                                                 if let Some((final_user, score)) = matched_user {
                                                     let liveness_score = detections[0].liveness_score;
-                                                    if !smile_required || liveness_score > liveness_threshold {
-                                                        println!("✅ [Bonjour] Success: {} (score: {:.2})", final_user, score);
+                                                    
+                                                    let liveness_passed = if liveness_enabled {
+                                                        liveness_score > liveness_threshold
+                                                    } else {
+                                                        true
+                                                    };
+                                                    
+                                                    let smile_passed = if smile_required {
+                                                        liveness_score > liveness_threshold // Current heuristic treats high liveness score as smile
+                                                    } else {
+                                                        true
+                                                    };
+
+                                                    if liveness_passed && smile_passed {
+                                                        if !autocapture {
+                                                            // For future extension: Wait for explicit "Confirm" button in GUI
+                                                            // For now, if autocapture is off and we are in PAM, we just proceed
+                                                            // as confirmation was already handled by the "Press Enter" prompt.
+                                                        }
+                                                        println!("✅ [Bonjour] Success: {} (score: {:.2}, liveness: {:.2})", final_user, score, liveness_score);
                                                         let _ = capture_dev.stop();
                                                         let _ = tx.blocking_send(DaemonResponse::Success { user: final_user });
                                                         return;
                                                     } else {
-                                                        last_error = format!("Liveness failed ({:.2})", liveness_score);
+                                                        last_error = format!("Liveness/Smile failed ({:.2})", liveness_score);
                                                     }
                                                 } else {
                                                     last_error = "No matching identity found".to_string();
@@ -941,7 +933,7 @@ async fn main() -> Result<()> {
                                             let aligned = engine_lock.align_face(&dyn_img, &detections[0].landmarks);
                                             if let Ok(embedding) = engine_lock.get_face_embedding(&aligned) {
                                                 collected_embeddings.push(embedding);
-                                                println!("📍 Collected scan {}/{}", collected_embeddings.len(), target_scans);
+                                                println!("📍 Collected scan {}/{} (liveness: {:.2})", collected_embeddings.len(), target_scans, detections[0].liveness_score);
                                             }
                                         }
                                     }

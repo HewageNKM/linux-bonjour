@@ -84,6 +84,8 @@ pub enum DaemonResponse {
         #[serde(default)]
         enabled: bool,
         #[serde(default)]
+        has_face_data: bool,
+        #[serde(default)]
         enable_login: bool,
         #[serde(default)]
         enable_sudo: bool,
