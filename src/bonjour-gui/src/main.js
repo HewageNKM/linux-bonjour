@@ -518,7 +518,7 @@ listen("biometric-status", (event) => {
     } else if (resp.status === "FAILURE") {
         showToast(`Error: ${resp.reason}`, "error");
         if (enrollBtn.disabled) {
-            enrollmentModal.style.display = 'none';
+            enrollmentModal.classList.add('hidden');
             enrollBtn.disabled = false;
         }
     }

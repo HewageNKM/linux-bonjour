@@ -807,6 +807,10 @@ input:checked + .switch-slider:before {
   transition: all 0.3s ease;
 }
 
+.modal-overlay.hidden {
+  display: none !important;
+}
+
 .modal-content {
   background: var(--sidebar-bg);
   padding: 32px;
