@@ -18,6 +18,9 @@ const promptMessage = getEl('prompt-message');
 const promptInput = getEl('prompt-input');
 const promptCancelBtn = getEl('prompt-cancel-btn');
 const promptOkBtn = getEl('prompt-ok-btn');
+const statHealthScore = getEl('stat-health-score');
+const statHealthDesc = getEl('stat-health-desc');
+const healthBar = getEl('health-bar');
 
 function customPrompt(title, message, defaultValue = "") {
     return new Promise((resolve) => {
@@ -435,6 +438,64 @@ async function updateSystemStatus() {
         const idents = await invoke("list_identities");
         if (idents.status === "IDENTITY_LIST") {
             statIdentities.innerText = idents.users.length;
+        }
+
+        // --- HEALTH SCORE CALCULATION ---
+        let score = 0;
+        let reasons = [];
+
+        // 1. TPM (40%)
+        if (hw.tpm && hw.tpm.includes('Active')) {
+            score += 40;
+        } else {
+            reasons.push("TPM not active");
+        }
+
+        // 2. Camera (30%)
+        if (hw.camera && hw.camera.includes('Detected')) {
+            score += 30;
+            if (hw.camera.includes('IR')) {
+                // Bonus for IR (aesthetic only for now)
+            }
+        } else {
+            reasons.push("Camera not detected");
+        }
+
+        // 3. Model (20%)
+        if (hw.active_model && hw.active_model !== "None") {
+            score += 20;
+        } else {
+            reasons.push("AI model missing");
+        }
+
+        // 4. Permission Groups (10%)
+        const groups = await invoke("check_groups");
+        const hasTpmGroup = groups.includes('tss') || groups.includes('vtpm');
+        const hasVideoGroup = groups.includes('video');
+        if (hasTpmGroup && hasVideoGroup) {
+            score += 10;
+        } else {
+            reasons.push("Groups missing");
+        }
+
+        if (statHealthScore) {
+            statHealthScore.innerText = `${score}%`;
+            healthBar.style.width = `${score}%`;
+            
+            let color = 'info';
+            let desc = "System is fully optimized and secured.";
+            if (score >= 90) color = 'success';
+            else if (score >= 60) color = 'info';
+            else {
+                color = 'danger';
+                desc = `Optimization required: ${reasons.join(', ')}`;
+            }
+            
+            if (score === 100) desc = "Enterprise-grade hardware security active.";
+            
+            statHealthScore.className = `stat-value ${color}`;
+            healthBar.style.background = score >= 90 ? 'var(--success)' : (score >= 60 ? 'var(--info)' : 'var(--danger)');
+            if (statHealthDesc) statHealthDesc.innerText = desc;
         }
     } catch (error) {
         console.warn("Status update cycle failed:", error);

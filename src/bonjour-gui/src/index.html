@@ -38,8 +38,19 @@
       <main class="content">
         <!-- Dashboard View -->
         <section id="view-dashboard" class="view active">
-          <h2 class="view-title">Dashboard Overview</h2>
-          
+          <div class="stats-grid main-status">
+            <div class="stat-card health">
+              <span class="stat-label">System Health Score</span>
+              <div class="health-display">
+                <span id="stat-health-score" class="stat-value info">Calculating...</span>
+                <div class="health-gauge">
+                  <div id="health-bar" class="health-bar" style="width: 0%"></div>
+                </div>
+              </div>
+              <span id="stat-health-desc" class="stat-desc">Analyzing hardware security and AI readiness...</span>
+            </div>
+          </div>
+
           <div class="stats-grid">
             <div class="stat-card">
               <span class="stat-label">System Status</span>
