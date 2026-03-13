@@ -8,12 +8,13 @@ Linux Bonjour is a high-performance, enterprise-grade biometric authentication s
 
 ---
 
-## 🌟 Modern Architecture (v2.1.3)
+## 🌟 Modern Architecture (v2.3.6)
 
-- 🦀 **All-Rust Core**: The traditional Python daemon has been replaced with a high-concurrency Rust engine, utilizing `tokio` for async UDS (Unix Domain Socket) communication and `onnxruntime` for lightning-fast facial inference.
+- 🦀 **All-Rust Core**: A high-concurrency async Rust engine powered by `tokio` and `onnxruntime`, providing sub-100ms facial verification.
+- ⚡ **Nitro UI Dashboard**: A premium, "Glassmorphic" management console with real-time hardware diagnostics and a **Dynamic System Health Score** gauge.
 - 🔐 **TPM 2.0 Hardware Sealing**: Your biometric signatures are irreversibly bound to True-Hardware Entropy via the `tss-esapi` Endorsement framework. Signatures are fused with unique silicon identifiers, making them uncopyable even if the storage is compromised.
-- 🐚 **Gnome Shell Native**: Seamlessly integrated into GDM for a "Hello"-style login experience.
-- 🛡️ **PAM Module Efficiency**: A custom Rust PAM module ensures that face recognition is triggered only when needed, with zero overhead on traditional password fallback.
+- 🛡️ **Passive Liveness (LBP)**: Real-time texture and depth analysis to prevent photo/video spoofing attacks.
+- 🐚 **Deep System Integration**: Unified authentication across GDM (Login), `sudo` (Terminal), and Polkit (GUI Admin prompts).
 
 ## 🔐 Hardware Security & Fallback
 
