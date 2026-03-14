@@ -15,7 +15,11 @@ pub enum DaemonRequest {
         #[serde(default)]
         bypass_consent: bool 
     },
-    Enroll { user: String },
+    Enroll { 
+        user: String,
+        #[serde(default)]
+        bypass_consent: bool
+    },
     GetStatus,
     SetEnabled { enabled: bool },
     ListIdentities,
@@ -127,11 +131,11 @@ impl UdsServer {
     
         let listener = UnixListener::bind(path)?;
         
-        // Tighten permissions to 0660 (Owner/Group)
+        // Open permissions to 0666 so the unprivileged GUI can connect
         use std::os::unix::fs::PermissionsExt;
         if let Ok(metadata) = std::fs::metadata(path) {
             let mut perms = metadata.permissions();
-            perms.set_mode(0o660);
+            perms.set_mode(0o666);
             let _ = std::fs::set_permissions(path, perms);
         }
     

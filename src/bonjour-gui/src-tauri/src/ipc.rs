@@ -8,7 +8,11 @@ pub enum DaemonRequest {
         #[serde(default)]
         bypass_consent: bool 
     },
-    Enroll { user: String },
+    Enroll { 
+        user: String,
+        #[serde(default)]
+        bypass_consent: bool
+    },
     GetStatus,
     SetEnabled { enabled: bool },
     ListIdentities,

@@ -616,9 +616,9 @@ async fn main() -> Result<()> {
 
                     info!("🔍 IPC: Verification request for user: {}", user);
                     
-                    let (inference_tx, store) = {
+                    let (inference_tx, store, depth_enabled) = {
                         let ctx = context.lock().await;
-                        (ctx.inference_tx.clone(), Arc::clone(&ctx.store))
+                        (ctx.inference_tx.clone(), Arc::clone(&ctx.store), ctx.depth_enabled)
                     };
 
                     let camera_path_override = cfg.camera_path.clone();
@@ -811,9 +811,19 @@ async fn main() -> Result<()> {
                         let _ = tx.blocking_send(DaemonResponse::Failure { reason: format!("Timeout: {}", last_error) });
                     });
                 },
-                DaemonRequest::Enroll { user } => {
-                    if !is_admin {
-                        let _ = tx.send(DaemonResponse::Failure { reason: "Unauthorized: Root privileges required".to_string() }).await;
+                DaemonRequest::Enroll { user, bypass_consent } => {
+                    let requester_name = get_username_from_uid(peer_uid);
+                    let is_self = requester_name.as_ref() == Some(&user);
+                    
+                    if !is_admin && !is_self {
+                        let _ = tx.send(DaemonResponse::Failure { reason: format!("Unauthorized: Enrollment for user '{}' requires root privileges (you are logged in as '{}')", user, requester_name.unwrap_or_else(|| "unknown".to_string())) }).await;
+                        return;
+                    }
+                    let cfg = config.lock().await.clone();
+                    
+                    if cfg.ask_permission && !bypass_consent {
+                        info!("⚠️ [Bonjour] Enrollment permission check required for user: {}", user);
+                        let _ = tx.send(DaemonResponse::Info { msg: "CONSENT_REQUIRED".to_string() }).await;
                         return;
                     }
                     let cfg = config.lock().await.clone();
@@ -1001,11 +1011,11 @@ async fn main() -> Result<()> {
                                         30
                                     );
 
-                                     // 3D DEPTH PROBE (Enrollment)
+                                                           // 3D DEPTH PROBE (Simulation/Hardware)
                                      let depth_map = if liveness_enabled && depth_enabled {
-                                        capture_dev.get_depth_map(640, 360)
+                                         capture_dev.get_depth_map(640, 360) 
                                      } else {
-                                        None
+                                         None
                                      };
  
                                      match rt_handle.block_on(session.handle_enroll_frame(dyn_img, depth_map)) {
@@ -1040,4 +1050,15 @@ async fn main() -> Result<()> {
     }).await?;
 
     Ok(())
+}
+
+fn get_username_from_uid(uid: u32) -> Option<String> {
+    unsafe {
+        let passwd = libc::getpwuid(uid);
+        if passwd.is_null() {
+            return None;
+        }
+        let name = std::ffi::CStr::from_ptr((*passwd).pw_name);
+        Some(name.to_string_lossy().into_owned())
+    }
 }

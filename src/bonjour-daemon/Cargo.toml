@@ -34,3 +34,4 @@ moxcms = "0.8.1"
 v4l = "0.14"
 tss-esapi = "7.5"
 rusqlite = { version = "0.31", features = ["bundled"] }
+libc = "0.2"

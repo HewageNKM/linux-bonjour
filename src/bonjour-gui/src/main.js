@@ -531,7 +531,7 @@ enrollBtn.addEventListener('click', async () => {
     enrollmentVideo.src = "";
 
     try {
-        await invoke("run_biometric_command", { cmd: "ENROLL", user });
+        await invoke("run_biometric_command", { cmd: "ENROLL", user, bypass_consent: false });
     } catch (err) {
         showToast(`Enrollment failed: ${err}`, "error");
         enrollmentModal.classList.add('hidden');
@@ -579,7 +579,27 @@ listen("biometric-status", (event) => {
     } else if (resp.status === "SCANNING") {
         // Scanning feedback (reduced noise)
     } else if (resp.status === "INFO") {
-        showToast(resp.msg, "info");
+        if (resp.msg === "CONSENT_REQUIRED") {
+            const user = usernameInput.value.trim() || "default";
+            enrollmentInstruction.innerText = "Authorization Required...";
+            
+            // Trigger PKEXEC system validation
+            invoke("validate_user").then(validated => {
+                if (validated) {
+                    invoke("run_biometric_command", { cmd: "ENROLL", user, bypass_consent: true });
+                } else {
+                    showToast("Authorization cancelled", "info");
+                    enrollmentModal.classList.add('hidden');
+                    enrollBtn.disabled = false;
+                }
+            }).catch(e => {
+                showToast(`Authorization failed: ${e}`, "error");
+                enrollmentModal.classList.add('hidden');
+                enrollBtn.disabled = false;
+            });
+        } else {
+            showToast(resp.msg, "info");
+        }
     } else if (resp.status === "SUCCESS") {
         if (enrollBtn.disabled) {
             // This was likely an enrollment success

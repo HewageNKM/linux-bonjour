@@ -41,10 +41,10 @@ async fn stop_biometric_command() -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn run_biometric_command(app: AppHandle, cmd: String, user: String) -> Result<(), String> {
+async fn run_biometric_command(app: AppHandle, cmd: String, user: String, bypass_consent: bool) -> Result<(), String> {
     let request = match cmd.as_str() {
         "VERIFY" => DaemonRequest::Verify { user, bypass_consent: false },
-        "ENROLL" => DaemonRequest::Enroll { user },
+        "ENROLL" => DaemonRequest::Enroll { user, bypass_consent },
         _ => return Err("Invalid command".to_string()),
     };
 
@@ -272,6 +272,15 @@ async fn manage_service(action: String) -> Result<(), String> {
     }
 }
 
+#[tauri::command]
+async fn validate_user() -> Result<bool, String> {
+    let status = std::process::Command::new("pkexec")
+        .arg("id")
+        .status()
+        .map_err(|e| format!("Verification cancelled or failed: {}", e))?;
+    Ok(status.success())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -291,6 +300,7 @@ pub fn run() {
             check_groups,
             manage_service,
             rename_identity,
+            validate_user,
             stop_biometric_command
         ])
         .run(tauri::generate_context!())
