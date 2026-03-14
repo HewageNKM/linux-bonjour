@@ -73,9 +73,10 @@ pub enum DaemonResponse {
         camera: String,
         active_model: String,
         enabled: bool,
-        depth_supported: bool,
         #[serde(default)]
         depth_enabled: bool,
+        #[serde(default)]
+        available_models: Vec<String>,
     },
     DownloadProgress { 
         name: String,

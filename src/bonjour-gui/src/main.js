@@ -200,6 +200,16 @@ async function syncSettings() {
             settingAskPermission.checked = cfg.ask_permission;
             settingRetryLimit.value = cfg.retry_limit;
             settingModel.value = cfg.active_model;
+
+            // Model Availability Visualization
+            const hw = await invoke("get_hardware_status");
+            if (hw.status === "HARDWARE_STATUS" && hw.available_models) {
+                Array.from(settingModel.options).forEach(opt => {
+                    const isAvailable = hw.available_models.includes(opt.value);
+                    if (!opt.dataset.original) opt.dataset.original = opt.innerText;
+                    opt.innerText = opt.dataset.original + (isAvailable ? " ✅" : " 📥");
+                });
+            }
             
             settingSystemEnabled.checked = cfg.enabled;
             settingEnableLogin.checked = cfg.enable_login;

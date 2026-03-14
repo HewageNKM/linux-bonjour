@@ -433,14 +433,35 @@ async fn main() -> Result<()> {
                     
                     let hw = context.lock().await;
                     let cfg = config.lock().await;
+
+                    // Detect available models
+                    let mut available_models = Vec::new();
+                    let models_root = "/usr/share/linux-bonjour/models";
+                    
+                    // Check Buffalo_L (Flat or specific files)
+                    if std::path::Path::new(models_root).join("det_10g.onnx").exists() && 
+                       std::path::Path::new(models_root).join("arcface_w600k.onnx").exists() {
+                        available_models.push("buffalo_l".to_string());
+                    }
+
+                    // Check AntelopeV2 (Subdirectory)
+                    if std::path::Path::new(models_root).join("antelopev2").join("arcface_w600k.onnx").exists() {
+                        available_models.push("antelopev2".to_string());
+                    }
+
+                    // Check Buffalo_S (Hypothetically buffalo_s/...)
+                    if std::path::Path::new(models_root).join("buffalo_s").join("arcface_w600k.onnx").exists() {
+                        available_models.push("buffalo_s".to_string());
+                    }
+
                     let _ = tx.send(DaemonResponse::HardwareStatus {
                         tpm: if std::path::Path::new("/dev/tpm0").exists() { "Active (Hardware)".to_string() } else { "Software Fallback".to_string() },
                         acceleration: if cfg!(feature = "cuda") { "GPU (CUDA)".to_string() } else { "CPU (Vectorized)".to_string() },
                         camera: camera_type,
                         active_model: hw.model_name.clone(),
                         enabled: enabled.load(Ordering::SeqCst),
-                        depth_supported: hw.depth_enabled,
                         depth_enabled: cfg.depth_enabled,
+                        available_models,
                     }).await;
                 },
                 DaemonRequest::DownloadModel { name } => {
@@ -451,7 +472,7 @@ async fn main() -> Result<()> {
                     let model_url = match name.as_str() {
                         "buffalo_l" => "https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l.zip",
                         "buffalo_s" => "https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_s.zip",
-                        "antelope" => "https://github.com/deepinsight/insightface/releases/download/v0.7/antelopev2.zip",
+                        "antelopev2" | "antelope" => "https://github.com/deepinsight/insightface/releases/download/v0.7/antelopev2.zip",
                         _ => {
                             let _ = tx.send(DaemonResponse::Failure { reason: format!("Unknown model: {}", name) }).await;
                             return;
