@@ -199,6 +199,7 @@ async function syncSettings() {
             livenessThresholdValue.innerText = cfg.liveness_threshold.toFixed(2);
             settingAskPermission.checked = cfg.ask_permission;
             settingRetryLimit.value = cfg.retry_limit;
+            settingModel.value = cfg.active_model;
             
             settingSystemEnabled.checked = cfg.enabled;
             settingEnableLogin.checked = cfg.enable_login;
