@@ -31,7 +31,7 @@ use tracing::{info, warn, error, debug};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
-struct DaemonConfig {
+pub struct DaemonConfig {
     threshold: f32,
     smile_required: bool,
     autocapture: bool,
@@ -324,8 +324,9 @@ async fn main() -> Result<()> {
                     }
                 },
                 DaemonRequest::DeleteIdentity { user } => {
-                    if !is_admin {
-                        let _ = tx.send(DaemonResponse::Failure { reason: "Unauthorized: Root privileges required".to_string() }).await;
+                    let requester_name = get_username_from_uid(peer_uid).unwrap_or_default();
+                    if !is_admin && requester_name != user {
+                        let _ = tx.send(DaemonResponse::Failure { reason: "Unauthorized: Root privileges required to delete others".to_string() }).await;
                         return;
                     }
                     let ctx = context.lock().await;

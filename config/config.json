@@ -6,5 +6,6 @@
     "liveness_threshold": 0.50,
     "ask_permission": false,
     "retry_limit": 3,
-    "camera_path": null
+    "camera_path": null,
+    "depth_enabled": false
 }
