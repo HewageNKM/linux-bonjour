@@ -522,7 +522,14 @@ async function updateSystemStatus() {
 
 // --- ENROLLMENT ---
 enrollBtn.addEventListener('click', async () => {
-    const user = usernameInput.value.trim() || "default";
+    let user = usernameInput.value.trim();
+    if (!user) {
+        try {
+            user = await invoke("get_current_user");
+        } catch (e) {
+            user = "default";
+        }
+    }
 
     enrollBtn.disabled = true;
     enrollmentModal.classList.remove('hidden');
@@ -531,7 +538,8 @@ enrollBtn.addEventListener('click', async () => {
     enrollmentVideo.src = "";
 
     try {
-        await invoke("run_biometric_command", { cmd: "ENROLL", user, bypass_consent: false });
+        await invoke("run_biometric_command", { cmd: "ENROLL", user, bypassConsent: false
+ });
     } catch (err) {
         showToast(`Enrollment failed: ${err}`, "error");
         enrollmentModal.classList.add('hidden');
@@ -565,7 +573,7 @@ async function loadLogs() {
 getEl('refresh-logs').addEventListener('click', loadLogs);
 
 // --- LISTEN FOR REAL-TIME EVENTS ---
-listen("biometric-status", (event) => {
+listen("biometric-status", async (event) => {
     const resp = event.payload;
     
     if (resp.status === "ENROLLMENT_FRAME") {
@@ -580,13 +588,21 @@ listen("biometric-status", (event) => {
         // Scanning feedback (reduced noise)
     } else if (resp.status === "INFO") {
         if (resp.msg === "CONSENT_REQUIRED") {
-            const user = usernameInput.value.trim() || "default";
+            let user = usernameInput.value.trim();
+            if (!user) {
+                try {
+                    user = await invoke("get_current_user");
+                } catch (e) {
+                    user = "default";
+                }
+            }
             enrollmentInstruction.innerText = "Authorization Required...";
             
             // Trigger PKEXEC system validation
             invoke("validate_user").then(validated => {
                 if (validated) {
-                    invoke("run_biometric_command", { cmd: "ENROLL", user, bypass_consent: true });
+                    invoke("run_biometric_command", { cmd: "ENROLL", user, bypassConsent: true
+ });
                 } else {
                     showToast("Authorization cancelled", "info");
                     enrollmentModal.classList.add('hidden');
@@ -631,4 +647,12 @@ listen("biometric-status", (event) => {
     
     // Background polling for status
     setInterval(updateSystemStatus, 15000);
+
+    // Pre-fill username
+    try {
+        const currentUser = await invoke("get_current_user");
+        if (currentUser && usernameInput) {
+            usernameInput.value = currentUser;
+        }
+    } catch (e) { console.warn("Failed to get current user for pre-fill", e); }
 })();

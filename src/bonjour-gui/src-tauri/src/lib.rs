@@ -273,6 +273,11 @@ async fn manage_service(action: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn get_current_user() -> Result<String, String> {
+    Ok(whoami::username().to_string())
+}
+
+#[tauri::command]
 async fn validate_user() -> Result<bool, String> {
     let status = std::process::Command::new("pkexec")
         .arg("id")
@@ -301,6 +306,7 @@ pub fn run() {
             manage_service,
             rename_identity,
             validate_user,
+            get_current_user,
             stop_biometric_command
         ])
         .run(tauri::generate_context!())
