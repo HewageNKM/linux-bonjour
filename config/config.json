@@ -7,5 +7,5 @@
     "ask_permission": false,
     "retry_limit": 3,
     "camera_path": null,
-    "depth_enabled": false
+    "depth_enabled": true
 }
