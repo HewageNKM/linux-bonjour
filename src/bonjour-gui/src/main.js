@@ -87,6 +87,8 @@ const statLiveness = getEl('stat-liveness');
 const statRetries = getEl('stat-retries');
 const statActiveModel = getEl('stat-active-model');
 const statLivenessMode = getEl('stat-liveness-mode');
+const stat3dGuard = getEl('stat-3d-guard');
+const stat3dDesc = getEl('stat-3d-desc');
 const statGroups = getEl('stat-groups');
 const btnStartService = getEl('btn-start-service');
 const btnStopService = getEl('btn-stop-service');
@@ -415,6 +417,22 @@ async function updateSystemStatus() {
             
             statRetries.innerText = `${cfg.retry_limit} Attempts`;
             statRetries.className = 'stat-value info';
+
+            if (stat3dGuard) {
+                if (cfg.depth_active) {
+                    stat3dGuard.innerText = "ACTIVE";
+                    stat3dGuard.className = 'stat-value success';
+                    stat3dDesc.innerText = "Hardware 3D Shield enabled";
+                } else if (cfg.liveness_enabled) {
+                    stat3dGuard.innerText = "STANDBY";
+                    stat3dGuard.className = 'stat-value info';
+                    stat3dDesc.innerText = "Software 2D Liveness active";
+                } else {
+                    stat3dGuard.innerText = "OFF";
+                    stat3dGuard.className = 'stat-value danger';
+                    stat3dDesc.innerText = "Anti-spoofing disabled";
+                }
+            }
         }
 
         // Security Groups check

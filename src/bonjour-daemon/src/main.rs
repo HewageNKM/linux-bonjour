@@ -1,7 +1,11 @@
 mod onnx_utils;
 mod signature_utils;
+mod signature_vault;
 mod ipc_utils;
 mod security_utils;
+mod inference_worker;
+mod auth_flow;
+mod liveness_3d;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -14,12 +18,17 @@ use anyhow::Result;
 use image::{DynamicImage, ImageBuffer, Luma};
 use onnx_utils::InferenceEngine;
 use signature_utils::SignatureStore;
+use signature_vault::SignatureVault;
+use inference_worker::{InferenceWorker, InferenceJob};
+use auth_flow::{AuthSession, AuthDecision};
 use ipc_utils::{UdsServer, DaemonRequest, DaemonResponse, CameraInfo};
 use security_utils::{EncryptionProvider, PlainProvider, SoftwareProvider, TpmProvider};
 use base64::{Engine as _, engine::general_purpose};
 use std::io::Cursor;
 use v4l::io::traits::CaptureStream;
 use v4l::video::Capture;
+use tracing::{info, warn, error, debug};
+use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
 struct DaemonConfig {
@@ -49,7 +58,7 @@ fn open_v4l_device(index: usize) -> Option<V4lCore> {
     use v4l::io::mmap::Stream;
 
     let path = format!("/dev/video{}", index);
-    eprintln!("🔍 [Bonjour] Attempting direct V4L2 capture on {}...", path);
+    info!("🔍 [Bonjour] Attempting direct V4L2 capture on {}...", path);
     
     let dev = Device::with_path(&path).ok()?;
     
@@ -83,6 +92,29 @@ impl CaptureDevice {
             CaptureDevice::Luma(c) => c.stop_stream().map_err(|e| anyhow::anyhow!(e)),
             CaptureDevice::V4l(_v) => Ok(()), // Stream drops automatically
         }
+    }
+
+    fn get_depth_map(&self, width: u32, height: u32) -> Option<Vec<f32>> {
+        // [SIMULATION MODE] Generate a "synthetic" 3D face for demonstration
+        // if no real depth hardware is detected. In a RealSense implementation,
+        // this would poll the depth frame from SRS.
+        
+        let mut mock_map = vec![1.0; (width * height) as usize];
+        // Create a slight "central bulge" to simulate a real face (convexity)
+        let cx = width as f32 / 2.0;
+        let cy = height as f32 / 2.0;
+        for y in 0..height {
+            for x in 0..width {
+                let dx = x as f32 - cx;
+                let dy = y as f32 - cy;
+                let dist = (dx*dx + dy*dy).sqrt();
+                if dist < 100.0 {
+                    // Bulge 3cm closer at the center
+                    mock_map[(y * width + x) as usize] = 1.0 - (0.03 * (1.0 - dist/100.0));
+                }
+            }
+        }
+        Some(mock_map)
     }
 }
 
@@ -148,7 +180,12 @@ impl DaemonConfig {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    println!("🐧 Linux Bonjour Rust Daemon (Async UDS Mode)");
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env().add_directive(tracing::Level::INFO.into()))
+        .init();
+
+    info!("🐧 Linux Bonjour Rust Daemon (Async UDS Mode)");
     
     // 0. Single Instance Check (PID File)
     let pid_path = "/run/linux-bonjour/daemon.pid";
@@ -156,7 +193,7 @@ async fn main() -> Result<()> {
         if let Ok(pid) = existing_pid.trim().parse::<i32>() {
             // Check if process still exists
             if std::path::Path::new(&format!("/proc/{}", pid)).exists() {
-                eprintln!("❌ Error: Another daemon instance (PID {}) is already running.", pid);
+                error!("❌ Error: Another daemon instance (PID {}) is already running.", pid);
                 std::process::exit(1);
             }
         }
@@ -167,7 +204,7 @@ async fn main() -> Result<()> {
     let config = Arc::new(Mutex::new(DaemonConfig::load()));
 
 // 2. Initialize Engine & Security
-    println!("🤖 Initializing AI Engine...");
+    info!("🤖 Initializing AI Engine...");
     let det_path = "/usr/share/linux-bonjour/models/det_10g.onnx";
     let active_model = config.lock().await.active_model.clone();
     
@@ -181,7 +218,7 @@ async fn main() -> Result<()> {
     let initial_engine = match engine_res {
         Ok(e) => Arc::new(Mutex::new(e)),
         Err(e) => {
-            eprintln!("⚠️ AI Models not found: {}. Fallback to buffalo_l.", e);
+            warn!("⚠️ AI Models not found: {}. Fallback to buffalo_l.", e);
             let fb_path = "/usr/share/linux-bonjour/models/arcface_w600k.onnx";
             match InferenceEngine::new(det_path, fb_path) {
                 Ok(e) => Arc::new(Mutex::new(e)),
@@ -192,18 +229,18 @@ async fn main() -> Result<()> {
         }
     };
     
-    println!("🔐 Initializing Security Provider...");
+    info!("🔐 Initializing Security Provider...");
     let tpm_active = Arc::new(AtomicBool::new(false));
     let tpm_active_clone = Arc::clone(&tpm_active);
     
     let provider: Arc<dyn EncryptionProvider + Send + Sync> = match TpmProvider::new() {
         Ok(tpm) => {
-            println!("🔒 Biometric TPM Active: Using Endorsement Hardware Sealing");
+            info!("🔒 Biometric TPM Active: Using Endorsement Hardware Sealing");
             tpm_active.store(true, Ordering::SeqCst);
             Arc::new(tpm)
         },
         Err(e) => {
-            println!("⚠️ TPM Initialization Failed: {} - Defaulting to Software Fallback", e);
+            warn!("⚠️ TPM Initialization Failed: {} - Defaulting to Software Fallback", e);
             tpm_active.store(false, Ordering::SeqCst);
             match SoftwareProvider::new() {
                 Ok(sw) => Arc::new(sw),
@@ -212,32 +249,38 @@ async fn main() -> Result<()> {
         }
     };
 
-    let initial_store = Arc::new(SignatureStore::new(&active_model, provider.clone())?);
+    info!("🗄️ Initializing Secure Vault...");
+    let vault_path = std::path::Path::new("/var/lib/linux-bonjour/vault.db");
+    let vault = Arc::new(SignatureVault::new(vault_path)?);
+
+    let initial_store = Arc::new(SignatureStore::new(&active_model, Arc::clone(&vault), provider.clone())?);
     
     // 2.5 Encapsulate Context
     pub struct BiometricContext {
-        pub engine: Arc<Mutex<InferenceEngine>>,
+        pub inference_tx: tokio::sync::mpsc::Sender<InferenceJob>,
         pub store: Arc<SignatureStore>,
+        pub vault: Arc<SignatureVault>,
         pub model_name: String,
+        pub depth_enabled: bool,
     }
 
-    let context = Arc::new(Mutex::new(BiometricContext {
-        engine: initial_engine,
-        store: initial_store,
-        model_name: active_model,
-    }));
-
-    let system_enabled = Arc::new(AtomicBool::new(true));
-    
-    let initial_engine = {
-        let ctx = context.lock().await;
-        Arc::clone(&ctx.engine)
-    };
     let initial_engine_locked = initial_engine.lock().await;
     let acceleration = if initial_engine_locked.has_gpu() { "Active (GPU Accelerator)" } else { "Active (CPU/OpenVINO)" }.to_string();
     drop(initial_engine_locked);
+    
+    let inference_tx = InferenceWorker::spawn(initial_engine);
 
-    println!("✅ AI Models and Secure Storage ready.");
+    let context = Arc::new(Mutex::new(BiometricContext {
+        inference_tx,
+        store: initial_store,
+        vault,
+        model_name: active_model,
+        depth_enabled: false, // Default to false until HW detected
+    }));
+
+    let system_enabled = Arc::new(AtomicBool::new(true));
+
+    info!("✅ AI Models and Secure Storage ready.");
 
     // 3. Start UDS Server
     let server = UdsServer::new("/run/linux-bonjour/daemon.sock");
@@ -251,7 +294,8 @@ async fn main() -> Result<()> {
     let cancel_signal = Arc::new(AtomicBool::new(false));
     let cancel_signal_cloned = Arc::clone(&cancel_signal);
 
-    server.start(move |req, tx| {
+    server.start(move |req, tx, peer_uid| {
+        let is_admin = peer_uid == 0;
         let context = Arc::clone(&context_cloned);
         let provider = Arc::clone(&provider_cloned);
         let enabled = Arc::clone(&enabled_cloned);
@@ -263,13 +307,21 @@ async fn main() -> Result<()> {
         async move {
             match req {
                 DaemonRequest::STOP => {
+                    if !is_admin {
+                        let _ = tx.send(DaemonResponse::Failure { reason: "Unauthorized: Root privileges required".to_string() }).await;
+                        return;
+                    }
                     cancel_signal.store(true, Ordering::SeqCst);
-                    println!("🛑 Global stop signal received");
+                    info!("🛑 Global stop signal received from UID {}", peer_uid);
                     let _ = tx.send(DaemonResponse::ActionSuccess { msg: "Stop signal received".to_string() }).await;
                 },
                 DaemonRequest::SetEnabled { enabled: val } => {
+                    if !is_admin {
+                        let _ = tx.send(DaemonResponse::Failure { reason: "Unauthorized: Root privileges required".to_string() }).await;
+                        return;
+                    }
                     enabled.store(val, Ordering::SeqCst);
-                    println!("⚙️ System {}", if val { "ENABLED" } else { "DISABLED" });
+                    info!("⚙️ System {} by UID {}", if val { "ENABLED" } else { "DISABLED" }, peer_uid);
                     let _ = tx.send(DaemonResponse::Status { enabled: val }).await;
                 },
                 DaemonRequest::GetStatus => {
@@ -284,13 +336,24 @@ async fn main() -> Result<()> {
                     }
                 },
                 DaemonRequest::DeleteIdentity { user } => {
+                    if !is_admin {
+                        let _ = tx.send(DaemonResponse::Failure { reason: "Unauthorized: Root privileges required".to_string() }).await;
+                        return;
+                    }
                     let ctx = context.lock().await;
                     match ctx.store.delete_identity(&user) {
-                        Ok(_) => { let _ = tx.send(DaemonResponse::ActionSuccess { msg: format!("Identity '{}' deleted", user) }).await; },
+                        Ok(_) => { 
+                            info!("🗑️ Identity '{}' deleted by UID {}", user, peer_uid);
+                            let _ = tx.send(DaemonResponse::ActionSuccess { msg: format!("Identity '{}' deleted", user) }).await; 
+                        },
                         Err(e) => { let _ = tx.send(DaemonResponse::Failure { reason: e.to_string() }).await; },
                     }
                 },
                 DaemonRequest::RenameIdentity { old_name, new_name } => {
+                    if !is_admin {
+                        let _ = tx.send(DaemonResponse::Failure { reason: "Unauthorized: Root privileges required".to_string() }).await;
+                        return;
+                    }
                     let ctx = context.lock().await;
                     match ctx.store.rename_identity(&old_name, &new_name) {
                         Ok(_) => { let _ = tx.send(DaemonResponse::ActionSuccess { msg: format!("Identity '{}' renamed to '{}'", old_name, new_name) }).await; },
@@ -311,6 +374,10 @@ async fn main() -> Result<()> {
                     enable_sudo,
                     enable_polkit
                 } => {
+                    if !is_admin {
+                        let _ = tx.send(DaemonResponse::Failure { reason: "Unauthorized: Root privileges required".to_string() }).await;
+                        return;
+                    }
                     let mut cfg = config.lock().await;
                     cfg.threshold = threshold;
                     cfg.smile_required = smile_required;
@@ -323,7 +390,7 @@ async fn main() -> Result<()> {
                     
                     if let Some(new_model) = active_model {
                         if new_model != cfg.active_model {
-                            println!("🔄 Switching AI Model to: {}", new_model);
+                            info!("🔄 Switching AI Model to: {}", new_model);
                             let det_path = "/usr/share/linux-bonjour/models/det_10g.onnx";
                             let rec_path = if new_model == "buffalo_l" {
                                 "/usr/share/linux-bonjour/models/arcface_w600k.onnx".to_string()
@@ -332,20 +399,24 @@ async fn main() -> Result<()> {
                             };
 
                             if std::path::Path::new(&rec_path).exists() {
-                                if let Ok(new_engine) = InferenceEngine::new(det_path, &rec_path) {
-                                    if let Ok(new_store) = SignatureStore::new(&new_model, provider.clone()) {
-                                        let mut ctx = context.lock().await;
-                                        ctx.engine = Arc::new(Mutex::new(new_engine));
+                                let (res_tx, res_rx) = tokio::sync::oneshot::channel();
+                                let mut ctx = context.lock().await;
+                                let _ = ctx.inference_tx.send(InferenceJob::UpdateModel { 
+                                    det_path: det_path.to_string(), 
+                                    rec_path: rec_path.clone(), 
+                                    respond_to: res_tx 
+                                }).await;
+                                
+                                if let Ok(Ok(_)) = res_rx.await {
+                                    if let Ok(new_store) = SignatureStore::new(&new_model, ctx.vault.clone(), provider.clone()) {
                                         ctx.store = Arc::new(new_store);
                                         ctx.model_name = new_model.clone();
                                         cfg.active_model = new_model;
-                                        println!("✅ Biometric Context hot-swapped successfully (Model + Signatures).");
+                                        info!("✅ Biometric Context hot-swapped successfully (Model + Signatures).");
                                     }
-                                } else {
-                                    eprintln!("❌ Failed to initialize new model engine.");
                                 }
                             } else {
-                                println!("⚠️ Model files not found at {}. Download required.", rec_path);
+                                info!("⚠️ Model files not found at {}. Download required.", rec_path);
                             }
                         }
                     }
@@ -355,10 +426,10 @@ async fn main() -> Result<()> {
                     cfg.enable_polkit = enable_polkit;
                     
                     if let Err(e) = cfg.save() {
-                        eprintln!("❌ Failed to save configuration: {}", e);
+                        error!("❌ Failed to save configuration: {}", e);
                     }
                     
-                    println!("⚙️ Configuration updated and persisted.");
+                    info!("⚙️ Configuration updated and persisted.");
                     let _ = tx.send(DaemonResponse::ActionSuccess { msg: "Configuration updated".to_string() }).await;
                 },
                 DaemonRequest::GetHardwareStatus => {
@@ -369,22 +440,21 @@ async fn main() -> Result<()> {
                         "RGB Camera (Standard)".to_string()
                     };
                     
-                    let tpm_string = if tpm_state.load(Ordering::SeqCst) {
-                        "Active (Device Secured)".to_string()
-                    } else {
-                        "Software Fallback (Active)".to_string()
-                    };
-                    
-                    let active_model = config.lock().await.active_model.clone();
+                    let hw = context.lock().await;
                     let _ = tx.send(DaemonResponse::HardwareStatus {
-                        tpm: tpm_string,
-                        acceleration: accel_locked,
+                        tpm: if std::path::Path::new("/dev/tpm0").exists() { "Active (Hardware)".to_string() } else { "Software Fallback".to_string() },
+                        acceleration: if cfg!(feature = "cuda") { "GPU (CUDA)".to_string() } else { "CPU (Vectorized)".to_string() },
                         camera: camera_type,
-                        active_model,
+                        active_model: hw.model_name.clone(),
                         enabled: enabled.load(Ordering::SeqCst),
+                        depth_supported: hw.depth_enabled,
                     }).await;
                 },
                 DaemonRequest::DownloadModel { name } => {
+                    if !is_admin {
+                        let _ = tx.send(DaemonResponse::Failure { reason: "Unauthorized: Root privileges required".to_string() }).await;
+                        return;
+                    }
                     let model_url = match name.as_str() {
                         "buffalo_l" => "https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l.zip",
                         "buffalo_s" => "https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_s.zip",
@@ -450,20 +520,30 @@ async fn main() -> Result<()> {
                                         
                                         // SWAP CONTEXT ATOMICALLY
                                         let rec_path = format!("{}/arcface_w600k.onnx", target_path);
-                                        if let Ok(new_engine) = InferenceEngine::new("/usr/share/linux-bonjour/models/det_10g.onnx", &rec_path) {
-                                            if let Ok(new_store) = SignatureStore::new(&name_cloned, provider_cloned.clone()) {
+                                        let (res_tx, res_rx) = tokio::sync::oneshot::channel();
+                                        let context_lock_async = context_cloned.lock().await;
+                                        let _ = context_lock_async.inference_tx.send(InferenceJob::UpdateModel { 
+                                            det_path: "/usr/share/linux-bonjour/models/det_10g.onnx".to_string(), 
+                                            rec_path: rec_path.clone(), 
+                                            respond_to: res_tx 
+                                        }).await;
+                                        drop(context_lock_async);
+
+                                        if let Ok(Ok(_)) = res_rx.await {
+                                            let vault_cloned = {
+                                                let ctx = context_cloned.lock().await;
+                                                ctx.vault.clone()
+                                            };
+                                            if let Ok(new_store) = SignatureStore::new(&name_cloned, vault_cloned, provider_cloned.clone()) {
                                                 let mut ctx = context_cloned.lock().await;
-                                                ctx.engine = Arc::new(Mutex::new(new_engine));
                                                 ctx.store = Arc::new(new_store);
                                                 ctx.model_name = name_cloned.clone();
                                                 
                                                 let mut cfg = config_cloned.lock().await;
                                                 cfg.active_model = name_cloned.clone();
                                                 let _ = cfg.save();
-                                                println!("✅ Biometric Context swapped to new model: {}", name_cloned);
+                                                info!("✅ Biometric Context swapped to new model: {}", name_cloned);
                                             }
-                                        } else {
-                                            eprintln!("❌ Failed to initialize newly downloaded model: {}", rec_path);
                                         }
 
                                         // Final absolute cleanup: remove anything not .onnx
@@ -498,7 +578,8 @@ async fn main() -> Result<()> {
                 },
                 DaemonRequest::GetConfig => {
                     let cfg = config.lock().await;
-                    let has_face_data = !context.lock().await.store.list_identities().unwrap_or_default().is_empty();
+                    let ctx = context.lock().await;
+                    let has_face_data = !ctx.store.list_identities().unwrap_or_default().is_empty();
 
                     let _ = tx.send(DaemonResponse::Config {
                         threshold: cfg.threshold,
@@ -515,28 +596,29 @@ async fn main() -> Result<()> {
                         enable_login: cfg.enable_login,
                         enable_sudo: cfg.enable_sudo,
                         enable_polkit: cfg.enable_polkit,
+                        depth_active: ctx.depth_enabled && cfg.liveness_enabled,
                     }).await;
                 },
                 DaemonRequest::Verify { user, bypass_consent } => {
                     let cfg = config.lock().await.clone();
                     
                     if !enabled.load(Ordering::SeqCst) {
-                        println!("🚫 [Bonjour] System is globally DISABLED. Skipping verification.");
+                        info!("🚫 [Bonjour] System is globally DISABLED. Skipping verification.");
                         let _ = tx.send(DaemonResponse::Failure { reason: "System is globally disabled".to_string() }).await;
                         return;
                     }
 
                     if cfg.ask_permission && !bypass_consent {
-                        println!("⚠️ [Bonjour] Permission check required. Triggering PAM console prompt.");
+                        info!("⚠️ [Bonjour] Permission check required. Triggering PAM console prompt.");
                         let _ = tx.send(DaemonResponse::Info { msg: "CONSENT_REQUIRED".to_string() }).await;
                         return;
                     }
 
-                    println!("🔍 IPC: Verification request for user: {}", user);
+                    info!("🔍 IPC: Verification request for user: {}", user);
                     
-                    let (engine, store) = {
+                    let (inference_tx, store) = {
                         let ctx = context.lock().await;
-                        (Arc::clone(&ctx.engine), Arc::clone(&ctx.store))
+                        (ctx.inference_tx.clone(), Arc::clone(&ctx.store))
                     };
 
                     let camera_path_override = cfg.camera_path.clone();
@@ -546,6 +628,7 @@ async fn main() -> Result<()> {
                     let smile_required = cfg.smile_required;
                     let autocapture = cfg.autocapture;
 
+                    let rt_handle = tokio::runtime::Handle::current();
                     std::thread::spawn(move || {
                         // 1. Initialize Camera Once
                         let capture_dev = (|| {
@@ -572,56 +655,56 @@ async fn main() -> Result<()> {
                                 let dev_index = dev.index().clone();
                                 let is_ir = dev_name.to_lowercase().contains("ir") || dev_name.to_lowercase().contains("infrared");
 
-                                eprintln!("📷 [Bonjour] Checking device: {} [{}] (IR: {})", dev_name, dev_index, is_ir);
+                                info!("📷 [Bonjour] Checking device: {} [{}] (IR: {})", dev_name, dev_index, is_ir);
 
                                 if is_ir {
-                                    eprintln!("🔍 [Bonjour] Processing IR device [{}]. Bypassing standard probe.", dev_index);
+                                    info!("🔍 [Bonjour] Processing IR device [{}]. Bypassing standard probe.", dev_index);
                                     
                                     // 1. HARD FORCED ATTEMPT: 640x360 Luma (ASUS ZenBook standard)
                                     let forced_format = RequestedFormat::new::<LumaFormat>(RequestedFormatType::Exact(nokhwa::utils::CameraFormat::new(
                                         nokhwa::utils::Resolution::new(640, 360), nokhwa::utils::FrameFormat::YUYV, 30)));
                                     
-                                    eprintln!("   - Attempting [FORCED LUMA 640x360]...");
+                                    debug!("   - Attempting [FORCED LUMA 640x360]...");
                                     match Camera::with_backend(dev_index.clone(), forced_format, nokhwa::utils::ApiBackend::Video4Linux) {
                                         Ok(mut cam) => {
                                             if let Ok(_) = cam.open_stream() {
-                                                eprintln!("     ✅ SUCCESS! IR Hard-probe opened.");
+                                                info!("     ✅ SUCCESS! IR Hard-probe opened.");
                                                 for _ in 0..3 { let _ = cam.frame(); }
                                                 return Some(CaptureDevice::Luma(cam));
                                             } else {
-                                                eprintln!("     ❌ IR Hard-probe open_stream failed.");
+                                                warn!("     ❌ IR Hard-probe open_stream failed.");
                                             }
                                         },
-                                        Err(e) => eprintln!("     ❌ IR Hard-probe with_backend failed: {}", e),
+                                        Err(e) => warn!("     ❌ IR Hard-probe with_backend failed: {}", e),
                                     }
 
                                     // 2. Try Luma with standard strategies
                                     for strategy in [RequestedFormatType::None, RequestedFormatType::AbsoluteHighestResolution] {
                                         let format = RequestedFormat::new::<LumaFormat>(strategy.clone());
-                                        eprintln!("   - Attempting [Luma] with strategy {:?}", strategy);
+                                        debug!("   - Attempting [Luma] with strategy {:?}", strategy);
                                         if let Ok(mut cam) = Camera::with_backend(dev_index.clone(), format, nokhwa::utils::ApiBackend::Video4Linux) {
                                             if cam.open_stream().is_ok() {
-                                                eprintln!("     ✅ SUCCESS! [Luma] strategy opened.");
+                                                info!("     ✅ SUCCESS! [Luma] strategy opened.");
                                                 return Some(CaptureDevice::Luma(cam));
                                             }
                                         }
                                     }
 
                                     // 3. NATIVE V4L2 ATTEMPT (The Fix for 'Failed to Fufill')
-                                    eprintln!("   - Attempting [Direct V4L2 GREY]...");
+                                    debug!("   - Attempting [Direct V4L2 GREY]...");
                                     if let nokhwa::utils::CameraIndex::Index(idx) = dev_index {
                                         if let Some(core) = open_v4l_device(idx as usize) {
-                                            eprintln!("     ✅ SUCCESS! Direct V4L2 capture active.");
+                                            info!("     ✅ SUCCESS! Direct V4L2 capture active.");
                                             return Some(CaptureDevice::V4l(core));
                                         }
                                     }
 
                                     // 4. Last resort IR: Try RGB fallback on same node
                                     let rgb_fallback = RequestedFormat::new::<RgbFormat>(RequestedFormatType::None);
-                                    eprintln!("   - Attempting [RGB Fallback] on IR node...");
+                                    debug!("   - Attempting [RGB Fallback] on IR node...");
                                     if let Ok(mut cam) = Camera::with_backend(dev_index.clone(), rgb_fallback, nokhwa::utils::ApiBackend::Video4Linux) {
                                         if cam.open_stream().is_ok() {
-                                            eprintln!("     ✅ SUCCESS! [RGB Fallback] opened IR node.");
+                                            info!("     ✅ SUCCESS! [RGB Fallback] opened IR node.");
                                             return Some(CaptureDevice::Rgb(cam));
                                         }
                                     }
@@ -629,16 +712,16 @@ async fn main() -> Result<()> {
                                     // Regular RGB Probing
                                     for strategy in [RequestedFormatType::AbsoluteHighestResolution, RequestedFormatType::None] {
                                         let format = RequestedFormat::new::<RgbFormat>(strategy.clone());
-                                        eprintln!("🔍 [Bonjour] Opening RGB camera [{}] with strategy {:?}", dev_index, strategy);
+                                        info!("🔍 [Bonjour] Opening RGB camera [{}] with strategy {:?}", dev_index, strategy);
                                         match Camera::with_backend(dev_index.clone(), format, nokhwa::utils::ApiBackend::Video4Linux) {
                                             Ok(mut cam) => {
                                                 if cam.open_stream().is_ok() {
-                                                    eprintln!("✅ [Bonjour] Opened RGB camera [{}]", dev_index);
+                                                    info!("✅ [Bonjour] Opened RGB camera [{}]", dev_index);
                                                     for _ in 0..3 { let _ = cam.frame(); }
                                                     return Some(CaptureDevice::Rgb(cam));
                                                 }
                                             },
-                                            Err(e) => eprintln!("⚠️ [Bonjour] Node [{}] initialization failed: {}", dev_index, e),
+                                            Err(e) => warn!("⚠️ [Bonjour] Node [{}] initialization failed: {}", dev_index, e),
                                         }
                                     }
                                 }
@@ -686,61 +769,36 @@ async fn main() -> Result<()> {
 
                             match capture_result {
                                 Ok(dyn_img) => {
-                                    let mut engine_lock = engine.blocking_lock();
-                                    if let Ok(detections) = engine_lock.detect_faces(&dyn_img) {
-                                        if detections.is_empty() {
-                                            last_error = "No face detected".to_string();
-                                        } else {
-                                            let aligned = engine_lock.align_face(&dyn_img, &detections[0].landmarks);
-                                            if let Ok(embedding) = engine_lock.get_face_embedding(&aligned) {
-                                                let mut matched_user = None;
-                                                if let Ok(saved_embedding) = store.load_signature(&user) {
-                                                    let score = SignatureStore::cosine_similarity(&embedding, &saved_embedding);
-                                                    if score > threshold {
-                                                        matched_user = Some((user.clone(), score));
-                                                    }
-                                                }
-
-                                                if matched_user.is_none() {
-                                                    if let Ok(Some((identified_user, score))) = store.identify_user(&embedding, threshold) {
-                                                        println!("🔍 [Bonjour] Identified as: {} (score: {:.2}, liveness: {:.2})", identified_user, score, detections[0].liveness_score);
-                                                        matched_user = Some((identified_user, score));
-                                                    }
-                                                }
-
-                                                if let Some((final_user, score)) = matched_user {
-                                                    let liveness_score = detections[0].liveness_score;
-                                                    
-                                                    let liveness_passed = if liveness_enabled {
-                                                        liveness_score > liveness_threshold
-                                                    } else {
-                                                        true
-                                                    };
-                                                    
-                                                    let smile_passed = if smile_required {
-                                                        liveness_score > liveness_threshold // Current heuristic treats high liveness score as smile
-                                                    } else {
-                                                        true
-                                                    };
-
-                                                    if liveness_passed && smile_passed {
-                                                        if !autocapture {
-                                                            // For future extension: Wait for explicit "Confirm" button in GUI
-                                                            // For now, if autocapture is off and we are in PAM, we just proceed
-                                                            // as confirmation was already handled by the "Press Enter" prompt.
-                                                        }
-                                                        println!("✅ [Bonjour] Success: {} (score: {:.2}, liveness: {:.2})", final_user, score, liveness_score);
-                                                        let _ = capture_dev.stop();
-                                                        let _ = tx.blocking_send(DaemonResponse::Success { user: final_user });
-                                                        return;
-                                                    } else {
-                                                        last_error = format!("Liveness/Smile failed ({:.2})", liveness_score);
-                                                    }
-                                                } else {
-                                                    last_error = "No matching identity found".to_string();
-                                                }
-                                            }
-                                        }
+                                    let mut session = AuthSession::new(
+                                        inference_tx.clone(),
+                                        tx.clone(),
+                                        store.clone(),
+                                        threshold,
+                                        liveness_threshold,
+                                        liveness_enabled,
+                                        3
+                                    );
+                                    // 3D DEPTH PROBE (Simulation/Hardware)
+                                    let depth_map = if liveness_enabled && depth_enabled {
+                                        capture_dev.get_depth_map(640, 360)
+                                    } else {
+                                        None
+                                    };
+                                     
+                                     match rt_handle.block_on(session.handle_verify_frame(&user, dyn_img, depth_map)) {
+                                        Ok(AuthDecision::Success { user: final_user, score, liveness }) => {
+                                            info!("✅ [Bonjour] Success: {} (score: {:.2}, liveness: {:.2})", final_user, score, liveness);
+                                            let _ = capture_dev.stop();
+                                            let _ = tx.blocking_send(DaemonResponse::Success { user: final_user });
+                                            return;
+                                        },
+                                        Ok(AuthDecision::Failure { reason }) => {
+                                            last_error = reason;
+                                        },
+                                        Ok(AuthDecision::Continue { message, .. }) => {
+                                            last_error = message;
+                                        },
+                                        Err(e) => last_error = e.to_string(),
                                     }
                                 },
                                 Err(e) => last_error = e.to_string(),
@@ -748,26 +806,32 @@ async fn main() -> Result<()> {
                             std::thread::sleep(std::time::Duration::from_millis(100));
                         }
 
-                        println!("❌ [Bonjour] Verification timeout: {}", last_error);
+                        warn!("❌ [Bonjour] Verification timeout: {}", last_error);
                         let _ = capture_dev.stop();
                         let _ = tx.blocking_send(DaemonResponse::Failure { reason: format!("Timeout: {}", last_error) });
                     });
                 },
                 DaemonRequest::Enroll { user } => {
+                    if !is_admin {
+                        let _ = tx.send(DaemonResponse::Failure { reason: "Unauthorized: Root privileges required".to_string() }).await;
+                        return;
+                    }
                     let cfg = config.lock().await.clone();
-                    let (engine, store) = {
+                    let (inference_tx, store, depth_enabled) = {
                         let ctx = context.lock().await;
-                        (Arc::clone(&ctx.engine), Arc::clone(&ctx.store))
+                        (ctx.inference_tx.clone(), Arc::clone(&ctx.store), ctx.depth_enabled)
                     };
 
                     let camera_path_override = cfg.camera_path.clone();
                     let cancel_signal = Arc::clone(&cancel_signal);
+                    let liveness_enabled = cfg.liveness_enabled;
                     
+                    let rt_handle = tokio::runtime::Handle::current();
                     std::thread::spawn(move || {
                         let mut collected_embeddings: Vec<Vec<f32>> = Vec::new();
                         let target_scans = 5;
                         
-                        println!("🚀 Starting interactive enrollment for user: {}", user);
+                        info!("🚀 Starting interactive enrollment for user: {}", user);
                         cancel_signal.store(false, Ordering::SeqCst);
 
                         let capture_dev = (|| {
@@ -794,46 +858,46 @@ async fn main() -> Result<()> {
                                 let dev_index = dev.index().clone();
                                 let is_ir = dev_name.to_lowercase().contains("ir") || dev_name.to_lowercase().contains("infrared");
 
-                                eprintln!("📷 [Bonjour] Checking device: {} [{}] (IR: {})", dev_name, dev_index, is_ir);
+                                info!("📷 [Bonjour] Checking device: {} [{}] (IR: {})", dev_name, dev_index, is_ir);
 
                                 if is_ir {
-                                    eprintln!("🔍 [Bonjour] Processing IR device [{}]. Bypassing standard probe.", dev_index);
+                                    info!("🔍 [Bonjour] Processing IR device [{}]. Bypassing standard probe.", dev_index);
                                     
                                     // 1. HARD FORCED ATTEMPT: 640x360 Luma
                                     let forced_format = RequestedFormat::new::<LumaFormat>(RequestedFormatType::Exact(nokhwa::utils::CameraFormat::new(
                                         nokhwa::utils::Resolution::new(640, 360), nokhwa::utils::FrameFormat::YUYV, 30)));
                                     
-                                    eprintln!("   - Attempting [FORCED LUMA 640x360]...");
+                                    debug!("   - Attempting [FORCED LUMA 640x360]...");
                                     match Camera::with_backend(dev_index.clone(), forced_format, nokhwa::utils::ApiBackend::Video4Linux) {
                                         Ok(mut cam) => {
                                             if let Ok(_) = cam.open_stream() {
-                                                eprintln!("     ✅ SUCCESS! IR Hard-probe opened.");
+                                                info!("     ✅ SUCCESS! IR Hard-probe opened.");
                                                 for _ in 0..3 { let _ = cam.frame(); }
                                                 return Some(CaptureDevice::Luma(cam));
                                             } else {
-                                                eprintln!("     ❌ IR Hard-probe open_stream failed.");
+                                                warn!("     ❌ IR Hard-probe open_stream failed.");
                                             }
                                         },
-                                        Err(e) => eprintln!("     ❌ IR Hard-probe with_backend failed: {}", e),
+                                        Err(e) => warn!("     ❌ IR Hard-probe with_backend failed: {}", e),
                                     }
 
                                     // 2. Try Luma with standard strategies
                                     for strategy in [RequestedFormatType::None, RequestedFormatType::AbsoluteHighestResolution] {
                                         let format = RequestedFormat::new::<LumaFormat>(strategy.clone());
-                                        eprintln!("   - Attempting [Luma] with strategy {:?}", strategy);
+                                        debug!("   - Attempting [Luma] with strategy {:?}", strategy);
                                         if let Ok(mut cam) = Camera::with_backend(dev_index.clone(), format, nokhwa::utils::ApiBackend::Video4Linux) {
                                             if cam.open_stream().is_ok() {
-                                                eprintln!("     ✅ SUCCESS! [Luma] strategy opened.");
+                                                info!("     ✅ SUCCESS! [Luma] strategy opened.");
                                                 return Some(CaptureDevice::Luma(cam));
                                             }
                                         }
                                     }
 
                                     // 3. NATIVE V4L2 ATTEMPT (The Fix for 'Failed to Fufill')
-                                    eprintln!("   - Attempting [Direct V4L2 GREY]...");
+                                    debug!("   - Attempting [Direct V4L2 GREY]...");
                                     if let nokhwa::utils::CameraIndex::Index(idx) = dev_index {
                                         if let Some(core) = open_v4l_device(idx as usize) {
-                                            eprintln!("     ✅ SUCCESS! Direct V4L2 capture active.");
+                                            info!("     ✅ SUCCESS! Direct V4L2 capture active.");
                                             return Some(CaptureDevice::V4l(core));
                                         }
                                     }
@@ -842,7 +906,7 @@ async fn main() -> Result<()> {
                                     let rgb_fallback = RequestedFormat::new::<RgbFormat>(RequestedFormatType::None);
                                     if let Ok(mut cam) = Camera::with_backend(dev_index.clone(), rgb_fallback, nokhwa::utils::ApiBackend::Video4Linux) {
                                         if cam.open_stream().is_ok() {
-                                            eprintln!("     ✅ SUCCESS! [RGB Fallback] opened IR node.");
+                                            info!("     ✅ SUCCESS! [RGB Fallback] opened IR node.");
                                             return Some(CaptureDevice::Rgb(cam));
                                         }
                                     }
@@ -850,16 +914,16 @@ async fn main() -> Result<()> {
                                     // Regular RGB
                                     for strategy in [RequestedFormatType::AbsoluteHighestResolution, RequestedFormatType::None] {
                                         let format = RequestedFormat::new::<RgbFormat>(strategy.clone());
-                                        eprintln!("🔍 [Bonjour] Opening RGB camera [{}] with strategy {:?}", dev_index, strategy);
+                                        info!("🔍 [Bonjour] Opening RGB camera [{}] with strategy {:?}", dev_index, strategy);
                                         match Camera::with_backend(dev_index.clone(), format, nokhwa::utils::ApiBackend::Video4Linux) {
                                             Ok(mut cam) => {
                                                 if cam.open_stream().is_ok() {
-                                                    eprintln!("✅ [Bonjour] Opened RGB camera [{}]", dev_index);
+                                                    info!("✅ [Bonjour] Opened RGB camera [{}]", dev_index);
                                                     for _ in 0..3 { let _ = cam.frame(); }
                                                     return Some(CaptureDevice::Rgb(cam));
                                                 }
                                             },
-                                            Err(e) => eprintln!("⚠️ [Bonjour] Node [{}] initialization failed: {}", dev_index, e),
+                                            Err(e) => warn!("⚠️ [Bonjour] Node [{}] initialization failed: {}", dev_index, e),
                                         }
                                     }
                                 }
@@ -877,7 +941,7 @@ async fn main() -> Result<()> {
                         
                         for _attempt in 0..200 {
                             if cancel_signal.load(Ordering::SeqCst) {
-                                println!("🛑 Enrollment cancelled via signal");
+                                info!("🛑 Enrollment cancelled via signal");
                                 let _ = capture_dev.stop();
                                 return;
                             }
@@ -920,22 +984,35 @@ async fn main() -> Result<()> {
                                         message: msg,
                                         progress
                                     }) {
-                                        println!("🔌 Enrollment interrupted (Client disconnected)");
+                                        warn!("🔌 Enrollment interrupted (Client disconnected)");
                                         let _ = capture_dev.stop();
                                         return;
                                     }
                                 }
 
                                 if last_processed_time.elapsed() > std::time::Duration::from_millis(500) {
-                                    let mut engine_lock = engine.blocking_lock();
-                                    if let Ok(detections) = engine_lock.detect_faces(&dyn_img) {
-                                        if !detections.is_empty() {
-                                            let aligned = engine_lock.align_face(&dyn_img, &detections[0].landmarks);
-                                            if let Ok(embedding) = engine_lock.get_face_embedding(&aligned) {
-                                                collected_embeddings.push(embedding);
-                                                println!("📍 Collected scan {}/{} (liveness: {:.2})", collected_embeddings.len(), target_scans, detections[0].liveness_score);
-                                            }
-                                        }
+                                    let mut session = AuthSession::new(
+                                        inference_tx.clone(),
+                                        tx.clone(),
+                                        store.clone(),
+                                        0.0, // threshold not used for raw enrollment
+                                        0.0,
+                                        false,
+                                        30
+                                    );
+
+                                     // 3D DEPTH PROBE (Enrollment)
+                                     let depth_map = if liveness_enabled && depth_enabled {
+                                        capture_dev.get_depth_map(640, 360)
+                                     } else {
+                                        None
+                                     };
+ 
+                                     match rt_handle.block_on(session.handle_enroll_frame(dyn_img, depth_map)) {
+                                        Ok(Some(embedding)) => {
+                                            collected_embeddings.push(embedding);
+                                        },
+                                        _ => {}
                                     }
                                     last_processed_time = std::time::Instant::now();
                                 }
@@ -947,7 +1024,7 @@ async fn main() -> Result<()> {
                         if collected_embeddings.len() >= target_scans {
                             let averaged = InferenceEngine::average_embeddings(&collected_embeddings);
                             if store.save_signature(&user, &averaged).is_ok() {
-                                println!("✅ Averaged enrollment success for user: {}", user);
+                                info!("✅ Averaged enrollment success for user: {}", user);
                                 let _ = capture_dev.stop();
                                 let _ = tx.blocking_send(DaemonResponse::Success { user: user.clone() });
                                 return;

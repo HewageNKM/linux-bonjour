@@ -1,4 +1,5 @@
 use serde::{Serialize, Deserialize};
+use tracing::{info, warn, error, debug};
 use anyhow::Result;
 use std::path::Path;
 use tokio::net::UnixListener;
@@ -65,7 +66,8 @@ pub enum DaemonResponse {
         acceleration: String, 
         camera: String,
         active_model: String,
-        enabled: bool
+        enabled: bool,
+        depth_supported: bool, // New
     },
     DownloadProgress { 
         name: String,
@@ -92,6 +94,7 @@ pub enum DaemonResponse {
         enable_login: bool,
         enable_sudo: bool,
         enable_polkit: bool,
+        depth_active: bool, // New
     },
 }
 
@@ -110,7 +113,7 @@ impl UdsServer {
 
     pub async fn start<F, Fut>(&self, handler: F) -> Result<()>
     where
-        F: Fn(DaemonRequest, tokio::sync::mpsc::Sender<DaemonResponse>) -> Fut + Clone + Send + 'static,
+        F: Fn(DaemonRequest, tokio::sync::mpsc::Sender<DaemonResponse>, u32) -> Fut + Clone + Send + 'static,
         Fut: std::future::Future<Output = ()> + Send,
     {
         let path = Path::new(&self.socket_path);
@@ -124,20 +127,23 @@ impl UdsServer {
     
         let listener = UnixListener::bind(path)?;
         
-        // Ensure the socket is world-writable (0666) so the GUI/PAM can connect
+        // Tighten permissions to 0660 (Owner/Group)
         use std::os::unix::fs::PermissionsExt;
         if let Ok(metadata) = std::fs::metadata(path) {
             let mut perms = metadata.permissions();
-            perms.set_mode(0o666);
+            perms.set_mode(0o660);
             let _ = std::fs::set_permissions(path, perms);
         }
     
-        println!("📡 UDS Server listening on: {}", self.socket_path);
+        info!("📡 UDS Server listening on: {}", self.socket_path);
     
         loop {
             match listener.accept().await {
                 Ok((stream, _)) => {
                     let h = handler.clone();
+                    // Get peer credentials (UID) for security checks
+                    let peer_uid = stream.peer_cred().map(|c| c.uid()).unwrap_or(u32::MAX);
+
                     tokio::spawn(async move {
                         let (mut writer, mut reader) = Framed::new(stream, LinesCodec::new()).split();
                         let (tx, mut rx) = tokio::sync::mpsc::channel::<DaemonResponse>(10);
@@ -154,7 +160,7 @@ impl UdsServer {
                         while let Some(Ok(line)) = reader.next().await {
                             if let Ok(req) = serde_json::from_str::<DaemonRequest>(&line) {
                                 let tx_inner = tx.clone();
-                                h(req, tx_inner).await;
+                                h(req, tx_inner, peer_uid).await;
                             }
                         }
                         
@@ -163,7 +169,7 @@ impl UdsServer {
                     });
                 }
                 Err(e) => {
-                    eprintln!("❌ UDS Accept error: {}", e);
+                    error!("❌ UDS Accept error: {}", e);
                 }
             }
         }

@@ -10,7 +10,7 @@ echo "Starting linux-bonjour installation..."
 
 # 1. Install System Dependencies
 echo "Installing system dependencies..."
-sudo apt-get install -y libpam0g-dev build-essential cmake tpm2-tools libtss2-dev pkg-config libdbus-1-dev libwebkit2gtk-4.1-0
+sudo apt-get install -y libpam0g-dev build-essential cmake tpm2-tools libtss2-dev pkg-config libdbus-1-dev libwebkit2gtk-4.1-0 libsqlite3-dev libv4l-dev
 
 # 2. Build Components
 echo "Building Rust components..."

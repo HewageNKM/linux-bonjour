@@ -49,12 +49,11 @@ impl InferenceEngine {
         let target_size = 640;
         let resized = img.resize_exact(target_size, target_size, image::imageops::FilterType::Triangle);
         
-        let mut input = Array4::<f32>::zeros((1, 3, target_size as usize, target_size as usize));
-        for (x, y, pixel) in resized.pixels() {
-            input[[0, 0, y as usize, x as usize]] = (pixel[0] as f32 - 127.5) / 128.0;
-            input[[0, 1, y as usize, x as usize]] = (pixel[1] as f32 - 127.5) / 128.0;
-            input[[0, 2, y as usize, x as usize]] = (pixel[2] as f32 - 127.5) / 128.0;
-        }
+        let rgb = resized.to_rgb8();
+        let input = ndarray::Array::from_shape_vec((target_size as usize, target_size as usize, 3), rgb.into_raw())?
+            .mapv(|v| (v as f32 - 127.5) / 128.0)
+            .permuted_axes([2, 0, 1]) // HWC -> CHW
+            .insert_axis(ndarray::Axis(0)); // CHW -> NCHW
 
         let input_tensor = Value::from_array(input)?;
         let outputs = self.detection_session.run(ort::inputs![input_tensor])?;
@@ -172,12 +171,11 @@ impl InferenceEngine {
     }
 
     pub fn get_face_embedding(&mut self, aligned_img: &DynamicImage) -> Result<Vec<f32>> {
-        let mut input = Array4::<f32>::zeros((1, 3, 112, 112));
-        for (x, y, pixel) in aligned_img.pixels() {
-            input[[0, 0, y as usize, x as usize]] = (pixel[0] as f32 - 127.5) / 128.0;
-            input[[0, 1, y as usize, x as usize]] = (pixel[1] as f32 - 127.5) / 128.0;
-            input[[0, 2, y as usize, x as usize]] = (pixel[2] as f32 - 127.5) / 128.0;
-        }
+        let rgb = aligned_img.to_rgb8();
+        let input = ndarray::Array::from_shape_vec((112, 112, 3), rgb.into_raw())?
+            .mapv(|v| (v as f32 - 127.5) / 128.0)
+            .permuted_axes([2, 0, 1]) // HWC -> CHW
+            .insert_axis(ndarray::Axis(0)); // CHW -> NCHW
 
         let input_tensor = Value::from_array(input)?;
         let outputs = self.recognition_session.run(ort::inputs![input_tensor])?;

@@ -57,7 +57,7 @@ Section: utils
 Priority: optional
 Architecture: amd64
 Maintainer: HewageNKM <[EMAIL_ADDRESS]>
-Depends: libpam0g, libxcb-cursor0, libgl1, libglib2.0-0, libnotify-bin, tpm2-tools, libtss2-dev, libdbus-1-3, libwebkit2gtk-4.1-0, v4l-utils, curl, unzip
+Depends: libpam0g, libxcb-cursor0, libgl1, libglib2.0-0, libnotify-bin, tpm2-tools, libtss2-dev, libdbus-1-3, libwebkit2gtk-4.1-0, v4l-utils, curl, unzip, libsqlite3-0, libv4l-0
 Description:
   Linux Bonjour - Professional biometric face-recognition authentication.
   A secure, light-weight face-recognition authentication system for Linux.

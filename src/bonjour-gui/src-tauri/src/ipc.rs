@@ -59,7 +59,9 @@ pub enum DaemonResponse {
         acceleration: String, 
         camera: String,
         active_model: String,
-        enabled: bool
+        enabled: bool,
+        #[serde(default)]
+        depth_supported: bool,
     },
     DownloadProgress { 
         name: String,
@@ -91,5 +93,7 @@ pub enum DaemonResponse {
         enable_sudo: bool,
         #[serde(default)]
         enable_polkit: bool,
+        #[serde(default)]
+        depth_active: bool,
     },
 }

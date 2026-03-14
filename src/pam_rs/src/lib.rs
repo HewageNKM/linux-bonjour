@@ -71,7 +71,8 @@ pub enum DaemonResponse {
         acceleration: String, 
         camera: String,
         active_model: String,
-        enabled: bool
+        enabled: bool,
+        depth_supported: bool,
     },
     DownloadProgress { 
         name: String,
@@ -98,6 +99,7 @@ pub enum DaemonResponse {
         enable_login: bool,
         enable_sudo: bool,
         enable_polkit: bool,
+        depth_active: bool,
     },
 }
 

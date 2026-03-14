@@ -116,9 +116,14 @@
               <span class="stat-desc">Active (Smile) vs Passive (Texture)</span>
             </div>
             <div class="stat-card security">
+              <span class="stat-label">3D Depth Guard</span>
+              <span id="stat-3d-guard" class="stat-value info">Checking...</span>
+              <span id="stat-3d-desc" class="stat-desc">Hardware-backed geometry scan</span>
+            </div>
+            <div class="stat-card security">
               <span class="stat-label">Security Groups</span>
               <span id="stat-groups" class="stat-value info">Checking...</span>
-              <span class="stat-desc">Membership in tss (Enclave) and video</span>
+              <span class="stat-desc">Membership in tss and video</span>
             </div>
           </div>
         </section>
@@ -201,7 +206,7 @@
           <div class="setting-item">
             <div class="setting-info">
               <span class="setting-name">Passive Liveness</span>
-              <span class="setting-desc">Enable anti-spoofing checks (LBP)</span>
+              <span class="setting-desc">Enable anti-spoofing (Autodetect Hardware 3D Sensors)</span>
             </div>
             <label class="switch">
               <input type="checkbox" id="setting-liveness" checked>
