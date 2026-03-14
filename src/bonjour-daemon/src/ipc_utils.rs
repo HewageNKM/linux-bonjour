@@ -40,6 +40,8 @@ pub enum DaemonRequest {
         enable_sudo: bool,
         #[serde(default = "default_true")]
         enable_polkit: bool,
+        #[serde(default)]
+        depth_enabled: bool,
     },
     GetHardwareStatus,
     DownloadModel { name: String },
@@ -71,7 +73,9 @@ pub enum DaemonResponse {
         camera: String,
         active_model: String,
         enabled: bool,
-        depth_supported: bool, // New
+        depth_supported: bool,
+        #[serde(default)]
+        depth_enabled: bool,
     },
     DownloadProgress { 
         name: String,
@@ -99,6 +103,8 @@ pub enum DaemonResponse {
         enable_sudo: bool,
         enable_polkit: bool,
         depth_active: bool, // New
+        #[serde(default)]
+        depth_enabled: bool,
     },
 }
 

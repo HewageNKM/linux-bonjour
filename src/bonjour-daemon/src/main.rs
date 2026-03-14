@@ -44,7 +44,11 @@ struct DaemonConfig {
     enable_login: bool,
     enable_sudo: bool,
     enable_polkit: bool,
+    #[serde(default = "default_true")]
+    pub depth_enabled: bool,
 }
+
+fn default_true() -> bool { true }
 
 pub struct V4lCore {
     pub stream: v4l::io::mmap::Stream<'static>,
@@ -133,28 +137,12 @@ impl Default for DaemonConfig {
             enable_login: true,
             enable_sudo: true,
             enable_polkit: true,
+            depth_enabled: true,
         }
     }
 }
 
 impl DaemonConfig {
-    fn default() -> Self {
-        Self {
-            threshold: 0.38,
-            smile_required: false,
-            autocapture: false,
-            liveness_enabled: true,
-            liveness_threshold: 0.50,
-            ask_permission: false,
-            retry_limit: 3,
-            camera_path: None,
-            active_model: "buffalo_l".to_string(),
-            enable_login: true,
-            enable_sudo: true,
-            enable_polkit: true,
-        }
-    }
-
     fn load() -> Self {
         let path = "/etc/linux-bonjour/config.json";
         if let Ok(data) = std::fs::read_to_string(path) {
@@ -372,7 +360,8 @@ async fn main() -> Result<()> {
                     active_model,
                     enable_login,
                     enable_sudo,
-                    enable_polkit
+                    enable_polkit,
+                    depth_enabled
                 } => {
                     if !is_admin {
                         let _ = tx.send(DaemonResponse::Failure { reason: "Unauthorized: Root privileges required".to_string() }).await;
@@ -424,6 +413,7 @@ async fn main() -> Result<()> {
                     cfg.enable_login = enable_login;
                     cfg.enable_sudo = enable_sudo;
                     cfg.enable_polkit = enable_polkit;
+                    cfg.depth_enabled = depth_enabled;
                     
                     if let Err(e) = cfg.save() {
                         error!("❌ Failed to save configuration: {}", e);
@@ -441,6 +431,7 @@ async fn main() -> Result<()> {
                     };
                     
                     let hw = context.lock().await;
+                    let cfg = config.lock().await;
                     let _ = tx.send(DaemonResponse::HardwareStatus {
                         tpm: if std::path::Path::new("/dev/tpm0").exists() { "Active (Hardware)".to_string() } else { "Software Fallback".to_string() },
                         acceleration: if cfg!(feature = "cuda") { "GPU (CUDA)".to_string() } else { "CPU (Vectorized)".to_string() },
@@ -448,6 +439,7 @@ async fn main() -> Result<()> {
                         active_model: hw.model_name.clone(),
                         enabled: enabled.load(Ordering::SeqCst),
                         depth_supported: hw.depth_enabled,
+                        depth_enabled: cfg.depth_enabled,
                     }).await;
                 },
                 DaemonRequest::DownloadModel { name } => {
@@ -596,7 +588,8 @@ async fn main() -> Result<()> {
                         enable_login: cfg.enable_login,
                         enable_sudo: cfg.enable_sudo,
                         enable_polkit: cfg.enable_polkit,
-                        depth_active: ctx.depth_enabled && cfg.liveness_enabled,
+                        depth_active: ctx.depth_enabled && cfg.liveness_enabled && cfg.depth_enabled,
+                        depth_enabled: cfg.depth_enabled,
                     }).await;
                 },
                 DaemonRequest::Verify { user, bypass_consent } => {

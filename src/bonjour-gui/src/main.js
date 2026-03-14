@@ -204,6 +204,10 @@ async function syncSettings() {
             settingEnableLogin.checked = cfg.enable_login;
             settingEnableSudo.checked = cfg.enable_sudo;
             settingEnablePolkit.checked = cfg.enable_polkit;
+            const settingDepthEnabled = getEl('setting-depth-enabled');
+            if (settingDepthEnabled) {
+                settingDepthEnabled.checked = cfg.depth_enabled !== false;
+            }
 
             // Populate Camera List
             const cameras = await invoke("get_camera_list");
@@ -274,6 +278,8 @@ getEl('save-settings-btn').addEventListener('click', async () => {
         // Sync Global State
         await invoke("toggle_system", { enabled: settingSystemEnabled.checked });
 
+        const depth_enabled = getEl('setting-depth-enabled') ? getEl('setting-depth-enabled').checked : true;
+
         await invoke("update_config", { 
             threshold, 
             smileRequired: smile_required,
@@ -286,7 +292,8 @@ getEl('save-settings-btn').addEventListener('click', async () => {
             activeModel: model,
             enableLogin: settingEnableLogin.checked,
             enableSudo: settingEnableSudo.checked,
-            enablePolkit: settingEnablePolkit.checked
+            enablePolkit: settingEnablePolkit.checked,
+            depthEnabled: depth_enabled
         });
         
         showToast("Configuration saved successfully!");
@@ -423,6 +430,10 @@ async function updateSystemStatus() {
                     stat3dGuard.innerText = "ACTIVE";
                     stat3dGuard.className = 'stat-value success';
                     stat3dDesc.innerText = "Hardware 3D Shield enabled";
+                } else if (cfg.depth_enabled === false) {
+                    stat3dGuard.innerText = "DISABLED";
+                    stat3dGuard.className = 'stat-value danger';
+                    stat3dDesc.innerText = "3D Sensing turned off in settings";
                 } else if (cfg.liveness_enabled) {
                     stat3dGuard.innerText = "STANDBY";
                     stat3dGuard.className = 'stat-value info';

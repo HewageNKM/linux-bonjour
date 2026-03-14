@@ -141,6 +141,7 @@ async fn update_config(
     enable_login: bool,
     enable_sudo: bool,
     enable_polkit: bool,
+    depth_enabled: bool,
 ) -> Result<DaemonResponse, String> {
     let mut stream = UnixStream::connect(SOCKET_PATH).await.map_err(|e| format!("Daemon connection failed: {}", e))?;
     let request = DaemonRequest::UpdateConfig { 
@@ -156,6 +157,7 @@ async fn update_config(
         enable_login,
         enable_sudo,
         enable_polkit,
+        depth_enabled,
     };
     let req_json = serde_json::to_string(&request).map_err(|e| e.to_string())?;
     stream.write_all(format!("{}\n", req_json).as_bytes()).await.map_err(|e| e.to_string())?;
