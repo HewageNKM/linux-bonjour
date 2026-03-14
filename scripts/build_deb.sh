@@ -71,19 +71,40 @@ BASE_DIR="/usr/share/linux-bonjour"
 MODELS_DIR="\$BASE_DIR/models"
 echo "Configuring Linux Bonjour v$VERSION Rust Core..."
 
-# 0. Download Core AI Models
-echo "Downloading core AI models (buffalo_l)..."
-mkdir -p \$MODELS_DIR
-if [ ! -f "\$MODELS_DIR/det_10g.onnx" ] || [ ! -f "\$MODELS_DIR/arcface_w600k.onnx" ]; then
-    curl -L -s -S "https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l.zip" -o "/tmp/buffalo_l.zip"
-    unzip -j -o -q "/tmp/buffalo_l.zip" -d "\$MODELS_DIR/"
-    if [ -f "\$MODELS_DIR/w600k_r50.onnx" ]; then
-        mv "\$MODELS_DIR/w600k_r50.onnx" "\$MODELS_DIR/arcface_w600k.onnx"
+# Helper for model downloads
+download_model() {
+    local name=\$1
+    local url=\$2
+    local zip_file="/tmp/\$name.zip"
+    echo "Downloading \$name model..."
+    curl -L -s -S "\$url" -o "\$zip_file"
+    unzip -j -o -q "\$zip_file" -d "\$MODELS_DIR/"
+    if [ "\$name" == "buffalo_l" ]; then
+        if [ -f "\$MODELS_DIR/w600k_r50.onnx" ]; then
+            mv "\$MODELS_DIR/w600k_r50.onnx" "\$MODELS_DIR/arcface_w600k.onnx"
+        fi
     fi
-    rm -f "/tmp/buffalo_l.zip"
-    echo "AI Models downloaded and installed."
-else
-    echo "AI Models already exist. Skipping download."
+    rm -f "\$zip_file"
+}
+
+# 0. Download Core AI Models
+echo "Downloading core AI models..."
+mkdir -p \$MODELS_DIR
+
+# Buffalo_L
+if [ ! -f "\$MODELS_DIR/det_10g.onnx" ] || [ ! -f "\$MODELS_DIR/arcface_w600k.onnx" ]; then
+    download_model "buffalo_l" "https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l.zip"
+fi
+
+# AntelopeV2
+if [ ! -d "\$MODELS_DIR/antelopev2" ]; then
+    mkdir -p "\$MODELS_DIR/antelopev2"
+    download_model "antelopev2" "https://github.com/deepinsight/insightface/releases/download/v0.7/antelopev2.zip"
+    if [ -f "\$MODELS_DIR/r100.onnx" ]; then
+         mv "\$MODELS_DIR/r100.onnx" "\$MODELS_DIR/arcface_w600k.onnx"
+    fi
+    mv "\$MODELS_DIR/arcface_w600k.onnx" "\$MODELS_DIR/antelopev2/" 2>/dev/null || true
+    mv "\$MODELS_DIR/scrfd_10g_bnkps.onnx" "\$MODELS_DIR/det_10g.onnx" 2>/dev/null || true
 fi
 
 # 1. Setup Persistent Infrastructure
@@ -163,26 +184,32 @@ if [ ! -f "\$CONFIG_FILE" ]; then
         echo "✅ Pre-selected Camera: \$BEST_CAM"
         cat <<EOC > "\$CONFIG_FILE"
 {
-  "threshold": 0.38,
+  "threshold": 0.45,
   "smile_required": false,
   "autocapture": false,
   "liveness_enabled": true,
+  "liveness_threshold": 0.50,
   "ask_permission": false,
   "retry_limit": 3,
-  "camera_path": "\$BEST_CAM"
+  "camera_path": "\$BEST_CAM",
+  "active_model": "antelopev2",
+  "depth_enabled": true
 }
 EOC
     else
         echo "⚠️ No camera detected. Creating default config."
         cat <<EOC > "\$CONFIG_FILE"
 {
-  "threshold": 0.38,
+  "threshold": 0.45,
   "smile_required": false,
   "autocapture": false,
   "liveness_enabled": true,
+  "liveness_threshold": 0.50,
   "ask_permission": false,
   "retry_limit": 3,
-  "camera_path": null
+  "camera_path": null,
+  "active_model": "antelopev2",
+  "depth_enabled": true
 }
 EOC
     fi

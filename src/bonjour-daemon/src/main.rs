@@ -133,7 +133,7 @@ impl Default for DaemonConfig {
             ask_permission: false,
             retry_limit: 3,
             camera_path: None,
-            active_model: "buffalo_l".to_string(),
+            active_model: "antelopev2".to_string(),
             enable_login: true,
             enable_sudo: true,
             enable_polkit: true,

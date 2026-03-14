@@ -1,11 +1,15 @@
 {
-    "threshold": 0.45,
+    "threshold": 0.8,
     "smile_required": false,
     "autocapture": false,
     "liveness_enabled": true,
-    "liveness_threshold": 0.50,
-    "ask_permission": false,
+    "liveness_threshold": 0.5,
+    "ask_permission": true,
     "retry_limit": 3,
-    "camera_path": null,
-    "depth_enabled": true
+    "camera_path": "2",
+    "active_model": "antelopev2",
+    "enable_login": true,
+    "enable_sudo": true,
+    "enable_polkit": true,
+    "depth_enabled": false
 }
