@@ -2,9 +2,10 @@
 Description=Linux Bonjour Biometric Authentication Daemon
 After=network.target network-online.target camera.target
 Wants=camera.target
+Before=display-manager.service
 
 [Service]
-Type=simple
+Type=notify
 ExecStart=/usr/bin/linux-bonjour-daemon
 Restart=always
 RestartSec=3

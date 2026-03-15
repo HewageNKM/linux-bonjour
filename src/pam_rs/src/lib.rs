@@ -290,8 +290,27 @@ pub unsafe extern "C" fn pam_sm_authenticate(
 }
 
 fn perform_verify(pamh: *mut PamHandle, user: &str, bypass_consent: bool) -> VerifyResult {
-    match UnixStream::connect(SOCKET_PATH) {
-        Ok(mut stream) => {
+    let mut retry_count = 0;
+    let max_retries = 5;
+    let mut last_stream = None;
+
+    while retry_count < max_retries {
+        match UnixStream::connect(SOCKET_PATH) {
+            Ok(stream) => {
+                last_stream = Some(stream);
+                break;
+            }
+            Err(_) => {
+                retry_count += 1;
+                if retry_count < max_retries {
+                    std::thread::sleep(Duration::from_secs(1));
+                }
+            }
+        }
+    }
+
+    match last_stream {
+        Some(mut stream) => {
             let _ = stream.set_read_timeout(Some(Duration::from_secs(30)));
             let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
             
@@ -327,7 +346,7 @@ fn perform_verify(pamh: *mut PamHandle, user: &str, bypass_consent: bool) -> Ver
                             }
                         },
                         DaemonResponse::Success { user: _ } => {
-                            unsafe { send_message(pamh, PAM_TEXT_INFO, &format!("✅ [Bonjour] Authenticated as: {}", user)); }
+                            unsafe { send_message(pamh, PAM_TEXT_INFO, "✅ [Bonjour] Authenticated."); }
                             return VerifyResult::Success;
                         },
                         DaemonResponse::Failure { reason } => {
@@ -343,7 +362,7 @@ fn perform_verify(pamh: *mut PamHandle, user: &str, bypass_consent: bool) -> Ver
             }
             VerifyResult::HardFailure("Unexpected end of stream from daemon.".to_string())
         },
-        Err(_) => VerifyResult::HardFailure("Daemon unreachable.".to_string())
+        None => VerifyResult::HardFailure("Daemon unreachable after retries.".to_string())
     }
 }
 

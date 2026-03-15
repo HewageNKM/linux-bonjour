@@ -273,6 +273,10 @@ async fn main() -> Result<()> {
     // 3. Start UDS Server
     let server = UdsServer::new("/run/linux-bonjour/daemon.sock");
     
+    // 4. Notify Systemd of Readiness
+    info!("🚀 [Bonjour] Daemon is READY and listening.");
+    let _ = sd_notify::notify(false, &[sd_notify::NotifyState::Ready]);
+
     let context_cloned = Arc::clone(&context);
     let provider_cloned = Arc::clone(&provider);
     let enabled_cloned = Arc::clone(&system_enabled);
