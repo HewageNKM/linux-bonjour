@@ -1,6 +1,6 @@
 [package]
 name = "pam-bonjour"
-version = "2.3.8"
+version = "2.3.10"
 edition = "2021"
 
 [lib]
