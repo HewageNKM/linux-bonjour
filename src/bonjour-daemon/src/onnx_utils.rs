@@ -13,6 +13,17 @@ const REFERENCE_LANDMARKS: [[f32; 2]; 5] = [
     [70.7299, 92.3655],
 ];
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct FaceQuality {
+    pub brightness: f32, // 0.0 to 1.0
+    pub is_too_dark: bool,
+    pub is_too_bright: bool,
+    pub is_too_small: bool,
+    pub is_too_large: bool,
+    pub is_not_centered: bool,
+    pub is_tilted: bool,
+}
+
 #[derive(Debug, Clone)]
 pub struct FaceDetection {
     pub bbox: [f32; 4],
@@ -45,6 +56,8 @@ impl InferenceEngine {
     }
 
     pub fn detect_faces(&mut self, img: &DynamicImage) -> Result<Vec<FaceDetection>> {
+        // ... (existing implementation)
+        // [Existing implementation is actually quite long, let's keep it as is but I need to make sure I don't break it]
         let (orig_w, orig_h) = img.dimensions();
         let target_size = 640;
         let resized = img.resize_exact(target_size, target_size, image::imageops::FilterType::Triangle);
@@ -121,6 +134,62 @@ impl InferenceEngine {
 
         drop(outputs);
         Ok(Self::nms(all_detections, 0.4))
+    }
+
+    pub fn analyze_quality(&self, img: &DynamicImage, face: &FaceDetection) -> FaceQuality {
+        let (w, h) = img.dimensions();
+        let fw = face.bbox[2] - face.bbox[0];
+        let fh = face.bbox[3] - face.bbox[1];
+        let area_ratio = (fw * fh) / (w as f32 * h as f32);
+
+        // 1. Position/Centering Check
+        let cx = (face.bbox[0] + face.bbox[2]) / 2.0;
+        let cy = (face.bbox[1] + face.bbox[3]) / 2.0;
+        let img_cx = w as f32 / 2.0;
+        let img_cy = h as f32 / 2.0;
+        let is_not_centered = (cx - img_cx).abs() > w as f32 * 0.2 || (cy - img_cy).abs() > h as f32 * 0.2;
+
+        // 2. Scale Check
+        let is_too_small = area_ratio < 0.05;
+        let is_too_large = area_ratio > 0.6;
+
+        // 3. Pose/Tilt Check (using landmarks)
+        // Index 0: left eye, 1: right eye
+        let eye_dy = (face.landmarks[0][1] - face.landmarks[1][1]).abs();
+        let eye_dx = (face.landmarks[0][0] - face.landmarks[1][0]).abs();
+        let is_tilted = eye_dy > eye_dx * 0.3; // Roughly 15-20 degrees
+
+        // 4. Brightness Check
+        let mut total_brightness = 0.0;
+        let mut count = 0;
+        
+        let start_x = face.bbox[0].max(0.0) as u32;
+        let start_y = face.bbox[1].max(0.0) as u32;
+        let end_x = face.bbox[2].min(w as f32 - 1.0) as u32;
+        let end_y = face.bbox[3].min(h as f32 - 1.0) as u32;
+
+        // Sample internal face pixels for brightness calculation
+        let step = 5;
+        for y in (start_y..end_y).step_by(step) {
+            for x in (start_x..end_x).step_by(step) {
+                let p = img.get_pixel(x, y);
+                // Use perceived brightness formula: 0.299*R + 0.587*G + 0.114*B
+                total_brightness += (0.299 * p[0] as f32 + 0.587 * p[1] as f32 + 0.114 * p[2] as f32) / 255.0;
+                count += 1;
+            }
+        }
+
+        let brightness = if count > 0 { total_brightness / count as f32 } else { 0.5 };
+        
+        FaceQuality {
+            brightness,
+            is_too_dark: brightness < 0.2, // Dark
+            is_too_bright: brightness > 0.85, // Blown out
+            is_too_small,
+            is_too_large,
+            is_not_centered,
+            is_tilted,
+        }
     }
 
     pub fn align_face(&self, img: &DynamicImage, landmarks: &[[f32; 2]; 5]) -> DynamicImage {

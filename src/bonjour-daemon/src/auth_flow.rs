@@ -22,7 +22,7 @@ pub enum SessionState {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AuthDecision {
-    Continue { message: String, progress: f32 },
+    Continue { message: String, progress: f32, feedback: Option<String> },
     Success { user: String, score: f32, liveness: f32 },
     Failure { reason: String },
 }
@@ -74,15 +74,24 @@ impl AuthSession {
             respond_to: res_tx 
         }).await?;
         
-        let (detections, liveness_3d): (Vec<crate::onnx_utils::FaceDetection>, LivenessResult) = match res_rx.await? {
+        let (detections, quality, liveness_3d): (Vec<crate::onnx_utils::FaceDetection>, Option<crate::onnx_utils::FaceQuality>, LivenessResult) = match res_rx.await? {
             Ok(res) => res,
             Err(e) => return Ok(AuthDecision::Failure { reason: format!("Detection error: {}", e) }),
         };
 
+        let feedback = Self::generate_feedback(&quality);
+        if let Some(f) = &feedback {
+            let _ = self.response_tx.send(DaemonResponse::Scanning { 
+                msg: "Improving capture...".to_string(), 
+                feedback: Some(f.clone()) 
+            }).await;
+        }
+
         if detections.is_empty() {
             return Ok(AuthDecision::Continue { 
                 message: "No face detected".to_string(),
-                progress: 0.0 
+                progress: 0.0,
+                feedback: None
             });
         }
 
@@ -135,11 +144,12 @@ impl AuthSession {
 
         Ok(AuthDecision::Continue { 
             message: "Face detected, but no match".to_string(), 
-            progress: 0.5 
+            progress: 0.5,
+            feedback: None 
         })
     }
 
-    pub async fn handle_enroll_frame(&mut self, img: DynamicImage, depth_map: Option<Vec<f32>>) -> Result<Option<Vec<f32>>> {
+    pub async fn handle_enroll_frame(&mut self, img: DynamicImage, depth_map: Option<Vec<f32>>) -> Result<(Option<Vec<f32>>, Option<String>)> {
         let (res_tx, res_rx) = tokio::sync::oneshot::channel();
         self.inference_tx.send(InferenceJob::Detect { 
             image: img.clone(), 
@@ -147,14 +157,12 @@ impl AuthSession {
             respond_to: res_tx 
         }).await?;
         
-        let (detections, _): (Vec<crate::onnx_utils::FaceDetection>, LivenessResult) = match res_rx.await? {
+        let (detections, quality, _): (Vec<crate::onnx_utils::FaceDetection>, Option<crate::onnx_utils::FaceQuality>, LivenessResult) = match res_rx.await? {
             Ok(d) => d,
-            Err(_) => return Ok(None),
+            Err(_) => return Ok((None, None)),
         };
 
-        if detections.is_empty() {
-            return Ok(None);
-        }
+        let feedback = Self::generate_feedback(&quality);
 
         let detection = &detections[0];
         let (emb_tx, emb_rx) = tokio::sync::oneshot::channel();
@@ -166,10 +174,22 @@ impl AuthSession {
         
         let embedding = match emb_rx.await? {
             Ok(e) => e,
-            Err(_) => return Ok(None),
+            Err(_) => return Ok((None, None)),
         };
 
         info!("📍 Collected scan (liveness: {:.2})", detection.liveness_score);
-        Ok(Some(embedding))
+        Ok((Some(embedding), None))
+    }
+
+    fn generate_feedback(quality: &Option<crate::onnx_utils::FaceQuality>) -> Option<String> {
+        if let Some(q) = quality {
+            if q.is_too_dark { return Some("Too dark, adjust lighting".to_string()); }
+            if q.is_too_bright { return Some("Too bright, avoid glare".to_string()); }
+            if q.is_too_small { return Some("Move closer".to_string()); }
+            if q.is_too_large { return Some("Too close, move back".to_string()); }
+            if q.is_not_centered { return Some("Center your face".to_string()); }
+            if q.is_tilted { return Some("Keep your head straight".to_string()); }
+        }
+        None
     }
 }

@@ -763,7 +763,7 @@ async fn main() -> Result<()> {
                             iteration += 1;
                             if iteration % 5 == 1 {
                                 let _ = tx.blocking_send(DaemonResponse::Scanning { 
-                                    msg: "Scanning...".to_string() 
+                                    msg: "Scanning...".to_string(), feedback: None 
                                 });
                             }
 
@@ -814,8 +814,14 @@ async fn main() -> Result<()> {
                                         Ok(AuthDecision::Failure { reason }) => {
                                             last_error = reason;
                                         },
-                                        Ok(AuthDecision::Continue { message, .. }) => {
+                                        Ok(AuthDecision::Continue { message, feedback, .. }) => {
                                             last_error = message;
+                                            if let Some(f) = feedback {
+                                                let _ = tx.blocking_send(DaemonResponse::Scanning { 
+                                                    msg: "Improving capture...".to_string(), 
+                                                    feedback: Some(f) 
+                                                });
+                                            }
                                         },
                                         Err(e) => last_error = e.to_string(),
                                     }
@@ -1011,7 +1017,7 @@ async fn main() -> Result<()> {
                                     if let Err(_) = tx.blocking_send(DaemonResponse::EnrollmentFrame { 
                                         base64_image: b64, 
                                         message: msg,
-                                        progress
+                                        progress, feedback: None
                                     }) {
                                         warn!("🔌 Enrollment interrupted (Client disconnected)");
                                         let _ = capture_dev.stop();
@@ -1037,9 +1043,24 @@ async fn main() -> Result<()> {
                                          None
                                      };
  
-                                     match rt_handle.block_on(session.handle_enroll_frame(dyn_img, depth_map)) {
-                                        Ok(Some(embedding)) => {
+                                     match rt_handle.block_on(session.handle_enroll_frame(dyn_img.clone(), depth_map)) {
+                                        Ok((Some(embedding), _)) => {
                                             collected_embeddings.push(embedding);
+                                        },
+                                        Ok((None, Some(feedback))) => {
+                                            let mut buf = Vec::new();
+                                            let mut cursor = Cursor::new(&mut buf);
+                                            let small_img = dyn_img.thumbnail(320, 240);
+                                            if small_img.write_to(&mut cursor, image::ImageFormat::Jpeg).is_ok() {
+                                                let b64 = general_purpose::STANDARD.encode(&buf);
+                                                let progress = collected_embeddings.len() as f32 / target_scans as f32;
+                                                let _ = tx.blocking_send(DaemonResponse::EnrollmentFrame { 
+                                                    base64_image: b64, 
+                                                    message: format!("Wait: {}", feedback),
+                                                    progress,
+                                                    feedback: Some(feedback)
+                                                });
+                                            }
                                         },
                                         _ => {}
                                     }

@@ -13,8 +13,10 @@
   --success: #059669;
   --danger: #dc2626;
   --info: #2563eb;
+  --warning: #f59e0b;
   --success-glow: rgba(5, 150, 105, 0.1);
   --danger-glow: rgba(220, 38, 38, 0.1);
+  --warning-glow: rgba(245, 158, 11, 0.1);
   --accent: #000000;
   --bg: #ffffff;
   --sidebar-width: 240px;
@@ -35,8 +37,10 @@
     --success: #10b981;
     --danger: #ef4444;
     --info: #3b82f6;
+    --warning: #fbbf24;
     --success-glow: rgba(16, 185, 129, 0.1);
     --danger-glow: rgba(239, 68, 68, 0.1);
+    --warning-glow: rgba(251, 191, 36, 0.1);
     --accent: #ffffff;
     --bg: #000000;
   }

@@ -59,7 +59,11 @@ pub struct CameraInfo {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "status", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum DaemonResponse {
-    Scanning { msg: String },
+    Scanning { 
+        msg: String,
+        #[serde(default)]
+        feedback: Option<String> 
+    },
     Success { user: String },
     Failure { reason: String },
     Info { msg: String },
@@ -81,7 +85,9 @@ pub enum DaemonResponse {
     EnrollmentFrame {
         base64_image: String,
         message: String,
-        progress: f32
+        progress: f32,
+        #[serde(default)]
+        feedback: Option<String>
     },
     CameraList { devices: Vec<CameraInfo> },
     Config {
@@ -260,37 +266,59 @@ pub unsafe extern "C" fn pam_sm_authenticate(
         }
     }
 
-    // Useful feedback if no face data
+    // Check enrollment status
     if !has_face_data {
-        unsafe { send_message(pamh, PAM_TEXT_INFO, "⚠️ [Bonjour] No face data found. Please enroll using the Bonjour GUI."); }
+        unsafe { send_message(pamh, PAM_TEXT_INFO, "ℹ️ [Bonjour] Not enrolled. Type password to login."); }
+        // Fallback to password prompt immediately
         return PamReturnCode::IGNORE;
     }
 
-    for attempt in 1..=retry_limit {
-        unsafe { send_message(pamh, PAM_TEXT_INFO, &format!("📸 [Bonjour] Authentication Attempt {}/{}", attempt, retry_limit)); }
-        
-        match perform_verify(pamh, &user, bypass_consent) {
+    // On login screens, try the first scan automatically for a zero-touch experience
+    if bypass_consent {
+        match perform_verify(pamh, &user, true) {
             VerifyResult::Success => return PamReturnCode::SUCCESS,
-            VerifyResult::HardFailure(reason) => {
-                unsafe { send_message(pamh, PAM_ERROR_MSG, &format!("❌ [Bonjour] Critical failure: {}", reason)); }
-                return PamReturnCode::IGNORE;
-            },
             VerifyResult::RetryableFailure(reason) => {
-                unsafe { send_message(pamh, PAM_ERROR_MSG, &format!("❌ [Bonjour] Authentication failed: {}", reason)); }
-                
-                if attempt < retry_limit {
-                    let prompt = "🔄 [Bonjour] Retry biometric authentication? [Y/n] ";
-                    if let Some(response) = unsafe { prompt_user(pamh, prompt) } {
-                        let response = response.trim().to_lowercase();
-                        if response == "n" || response == "no" {
-                            break;
-                        }
-                    } else {
-                        // Prompt failed or cancelled (e.g. Ctrl-D)
-                        break;
+                unsafe { send_message(pamh, PAM_TEXT_INFO, &format!("   - ❌ [Bonjour] Scan failed: {}", reason)); }
+            },
+            VerifyResult::HardFailure(_) => { /* Fallback to loop */ }
+        }
+    }
+
+    for attempt in 1..=retry_limit {
+        let prompt_text = if attempt == 1 && !bypass_consent {
+            "[Bonjour] Type password or hit Enter for Face ID: ".to_string()
+        } else {
+            format!("[Bonjour] Attempt {}/{} failed. Type password or hit Enter to retry:", if bypass_consent { attempt } else { attempt - 1 }, retry_limit)
+        };
+
+        if let Some(input) = unsafe { prompt_user(pamh, &prompt_text) } {
+            let input = input.trim();
+            if input.is_empty() {
+                // User hit Enter -> Action: Biometric Scan (Treat as immediate consent)
+                match perform_verify(pamh, &user, true) {
+                    VerifyResult::Success => return PamReturnCode::SUCCESS,
+                    VerifyResult::HardFailure(reason) => {
+                        unsafe { send_message(pamh, PAM_ERROR_MSG, &format!("❌ [Bonjour] Critical failure: {}", reason)); }
+                        return PamReturnCode::IGNORE;
+                    },
+                    VerifyResult::RetryableFailure(reason) => {
+                        // Just loop back for next attempt
+                        unsafe { send_message(pamh, PAM_TEXT_INFO, &format!("   - ❌ Failed: {}", reason)); }
                     }
                 }
+            } else {
+                // User typed something -> Action: Password Fallback
+                unsafe {
+                    let authtok = CString::new(input).unwrap_or_default();
+                    if pam_sys::set_item(&mut *pamh, pam_sys::PamItemType::AUTHTOK, &*(authtok.as_ptr() as *const libc::c_void)) == PamReturnCode::SUCCESS {
+                        return PamReturnCode::IGNORE;
+                    }
+                }
+                break;
             }
+        } else {
+            // Prompt failed or cancelled
+            break;
         }
     }
 
@@ -336,8 +364,12 @@ fn perform_verify(pamh: *mut PamHandle, user: &str, bypass_consent: bool) -> Ver
             while let Some(Ok(line)) = reader.next() {
                 if let Ok(resp) = serde_json::from_str::<DaemonResponse>(&line) {
                     match resp {
-                        DaemonResponse::Scanning { msg } => {
-                            unsafe { send_message(pamh, PAM_TEXT_INFO, &format!("   - {}", msg)); }
+                        DaemonResponse::Scanning { msg, feedback } => {
+                            if let Some(f) = feedback {
+                                unsafe { send_message(pamh, PAM_TEXT_INFO, &format!("   - ⚠️ {}", f)); }
+                            } else {
+                                unsafe { send_message(pamh, PAM_TEXT_INFO, &format!("   - {}", msg)); }
+                            }
                         },
                         DaemonResponse::Info { msg } => {
                             if msg == "CONSENT_REQUIRED" {

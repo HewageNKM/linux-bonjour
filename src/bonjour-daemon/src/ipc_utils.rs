@@ -60,7 +60,11 @@ pub struct CameraInfo {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "status", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum DaemonResponse {
-    Scanning { msg: String },
+    Scanning { 
+        msg: String,
+        #[serde(default)]
+        feedback: Option<String> 
+    },
     Success { user: String },
     Failure { reason: String },
     Info { msg: String },
@@ -85,7 +89,9 @@ pub enum DaemonResponse {
     EnrollmentFrame {
         base64_image: String,
         message: String,
-        progress: f32
+        progress: f32,
+        #[serde(default)]
+        feedback: Option<String>
     },
     CameraList { devices: Vec<CameraInfo> },
     Config {

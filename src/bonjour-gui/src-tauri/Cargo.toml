@@ -1,6 +1,6 @@
 [package]
 name = "bonjour-gui"
-version = "0.1.0"
+version = "2.3.14"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"

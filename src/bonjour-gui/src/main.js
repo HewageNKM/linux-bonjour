@@ -584,11 +584,19 @@ listen("biometric-status", async (event) => {
             enrollmentVideo.src = `data:image/jpeg;base64,${resp.base64_image}`;
         }
         if (enrollmentInstruction) {
-            enrollmentInstruction.innerText = resp.message;
+            if (resp.feedback) {
+                enrollmentInstruction.innerText = `⚠️ ${resp.feedback}`;
+                enrollmentInstruction.style.color = 'var(--warning)';
+            } else {
+                enrollmentInstruction.innerText = resp.message;
+                enrollmentInstruction.style.color = 'inherit';
+            }
         }
         setEnrollmentProgress(resp.progress * 100);
     } else if (resp.status === "SCANNING") {
-        // Scanning feedback (reduced noise)
+        if (resp.feedback) {
+            showToast(`Biometric Tip: ${resp.feedback}`, "info");
+        }
     } else if (resp.status === "INFO") {
         if (resp.msg === "CONSENT_REQUIRED") {
             let user = usernameInput.value.trim();

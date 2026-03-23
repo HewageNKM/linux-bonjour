@@ -11,7 +11,7 @@ pub enum InferenceJob {
     Detect {
         image: DynamicImage,
         depth_map: Option<Vec<f32>>, // New: Optional 3D data
-        respond_to: oneshot::Sender<Result<(Vec<FaceDetection>, LivenessResult)>>,
+        respond_to: oneshot::Sender<Result<(Vec<FaceDetection>, Option<crate::onnx_utils::FaceQuality>, LivenessResult)>>,
     },
     AlignAndEmbed {
         image: DynamicImage,
@@ -41,9 +41,18 @@ impl InferenceWorker {
                     InferenceJob::Detect { image, depth_map, respond_to } => {
                         let mut engine = worker.engine.lock().await;
                         let faces = engine.detect_faces(&image);
-                        
+                        let quality = if let Ok(ref f) = faces {
+                            if !f.is_empty() {
+                                Some(engine.analyze_quality(&image, &f[0]))
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        };
+
                         let liveness = match &depth_map {
-                            Some(dm) if !faces.as_ref().map_or(true, |f| f.is_empty()) => {
+                            Some(dm) if !faces.as_ref().map_or(true, |f: &Vec<crate::onnx_utils::FaceDetection>| f.is_empty()) => {
                                 // Validate liveness of the primary face
                                 let primary = &faces.as_ref().unwrap()[0];
                                 Liveness3D::verify_geometry(
@@ -56,7 +65,7 @@ impl InferenceWorker {
                             _ => LivenessResult::NoData,
                         };
 
-                        let _ = respond_to.send(faces.map(|f| (f, liveness)));
+                        let _ = respond_to.send(faces.map(|f| (f, quality, liveness)));
                     }
                     InferenceJob::AlignAndEmbed { image, landmarks, respond_to } => {
                         let mut engine = worker.engine.lock().await;
