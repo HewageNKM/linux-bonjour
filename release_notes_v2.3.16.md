@@ -1,4 +1,4 @@
-# Release v2.3.12
+# Release v2.3.16
 
 ## ✨ Major Architectural Milestone
 - **Unlocking the Monolith:** Specialized logic into `InferenceWorker` for high-concurrency processing.
@@ -27,4 +27,4 @@
 - **Signature Caching:** Instant authentication via in-memory signature caching.
 
 ---
-**Checksum (SHA256):** `d6314857964a0980eb927f5946fb7b133275f86f16915e3b2b871b2f46c4caa3`
+**Checksum (SHA256):** `61fd5a10477d1a3e939f473b80e75ad04be33830413db0b34a3b68e55f59ffe8`
