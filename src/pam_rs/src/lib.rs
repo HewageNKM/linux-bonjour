@@ -228,7 +228,7 @@ pub unsafe extern "C" fn pam_sm_authenticate(
 
     // Silent fallback if disabled globally
     if !system_enabled {
-        return PamReturnCode::AUTHINFO_UNAVAIL;
+        return PamReturnCode::IGNORE;
     }
 
     // Granular service checks
@@ -242,7 +242,7 @@ pub unsafe extern "C" fn pam_sm_authenticate(
         if ((service == "sudo" || service == "sudo-i" || service == "su") && !enable_sudo) || 
            ((service == "login" || service.contains("gdm") || service.contains("sddm") || service.contains("lightdm") || service.contains("dm")) && !enable_login) ||
            ((service.starts_with("polkit") || service == "pkexec") && !enable_polkit) {
-            return PamReturnCode::AUTHINFO_UNAVAIL;
+            return PamReturnCode::IGNORE;
         }
 
         // Ignore consent on pre-login display managers and TTY login
@@ -254,7 +254,7 @@ pub unsafe extern "C" fn pam_sm_authenticate(
     // Useful feedback if no face data
     if !has_face_data {
         unsafe { send_message(pamh, PAM_TEXT_INFO, "⚠️ [Bonjour] No face data found. Please enroll using the Bonjour GUI."); }
-        return PamReturnCode::AUTHINFO_UNAVAIL;
+        return PamReturnCode::IGNORE;
     }
 
     for attempt in 1..=retry_limit {
@@ -264,7 +264,7 @@ pub unsafe extern "C" fn pam_sm_authenticate(
             VerifyResult::Success => return PamReturnCode::SUCCESS,
             VerifyResult::HardFailure(reason) => {
                 unsafe { send_message(pamh, PAM_ERROR_MSG, &format!("❌ [Bonjour] Critical failure: {}", reason)); }
-                return PamReturnCode::AUTHINFO_UNAVAIL;
+                return PamReturnCode::IGNORE;
             },
             VerifyResult::RetryableFailure(reason) => {
                 unsafe { send_message(pamh, PAM_ERROR_MSG, &format!("❌ [Bonjour] Authentication failed: {}", reason)); }
@@ -286,7 +286,7 @@ pub unsafe extern "C" fn pam_sm_authenticate(
     }
 
     unsafe { send_message(pamh, PAM_TEXT_INFO, "⚠️ [Bonjour] Biometric failure. Falling back to password."); }
-    PamReturnCode::AUTHINFO_UNAVAIL
+    PamReturnCode::IGNORE
 }
 
 fn perform_verify(pamh: *mut PamHandle, user: &str, bypass_consent: bool) -> VerifyResult {
