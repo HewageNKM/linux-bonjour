@@ -138,9 +138,10 @@ unsafe fn send_message(pamh: *const PamHandle, msg_style: libc::c_int, text: &st
     }
 }
 
+const PAM_PROMPT_ECHO_OFF: libc::c_int = 1;
 const PAM_PROMPT_ECHO_ON: libc::c_int = 2;
 
-unsafe fn prompt_user(pamh: *const PamHandle, text: &str) -> Option<String> {
+unsafe fn prompt_user(pamh: *const PamHandle, text: &str, echo_on: bool) -> Option<String> {
     let mut conv_ptr: *const libc::c_void = ptr::null();
     unsafe {
         if pam_sys::get_item(&*pamh, pam_sys::PamItemType::CONV, &mut conv_ptr) != PamReturnCode::SUCCESS || conv_ptr.is_null() {
@@ -151,7 +152,7 @@ unsafe fn prompt_user(pamh: *const PamHandle, text: &str) -> Option<String> {
         if let Some(conv_func) = conv.conv {
             let msg_str = CString::new(text).unwrap_or_default();
             let msg = pam_sys::PamMessage {
-                msg_style: PAM_PROMPT_ECHO_ON,
+                msg_style: if echo_on { PAM_PROMPT_ECHO_ON } else { PAM_PROMPT_ECHO_OFF },
                 msg: msg_str.as_ptr(),
             };
             let mut msg_ptr = &msg as *const pam_sys::PamMessage;
@@ -286,7 +287,7 @@ pub unsafe extern "C" fn pam_sm_authenticate(
     for attempt in 1..=retry_limit {
         let prompt_text = format!("[Bonjour] Type password or hit Enter to (retry) scan [Attempt {}/{}]: ", attempt, retry_limit);
 
-        if let Some(input) = unsafe { prompt_user(pamh, &prompt_text) } {
+        if let Some(input) = unsafe { prompt_user(pamh, &prompt_text, false) } {
             let input = input.trim();
             if input.is_empty() {
                 // User hit Enter -> Action: Force Biometric Scan (Treat as consent)
