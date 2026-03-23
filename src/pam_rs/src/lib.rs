@@ -189,6 +189,15 @@ pub unsafe extern "C" fn pam_sm_authenticate(
         return PamReturnCode::USER_UNKNOWN;
     }
 
+    // Prevent Face ID from looping when sudo/login asks for password retries
+    unsafe {
+        if pam_sys::getenv(&mut *pamh, "BONJOUR_ATTEMPTED").is_some() {
+            // We've already tried biometric auth in this PAM session. Skip so password retry works normally.
+            return PamReturnCode::IGNORE;
+        }
+        pam_sys::putenv(&mut *pamh, "BONJOUR_ATTEMPTED=1");
+    }
+
     let user_cstr = CStr::from_ptr(user_ptr);
     let user = user_cstr.to_string_lossy().into_owned();
 
