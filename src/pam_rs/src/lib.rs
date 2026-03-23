@@ -179,6 +179,7 @@ unsafe fn prompt_user(pamh: *const PamHandle, text: &str) -> Option<String> {
 #[derive(Debug, PartialEq)]
 enum VerifyResult {
     Success,
+    ConsentRequired,
     RetryableFailure(String),
     HardFailure(String),
 }
@@ -273,28 +274,22 @@ pub unsafe extern "C" fn pam_sm_authenticate(
         return PamReturnCode::IGNORE;
     }
 
-    // On login screens, try the first scan automatically for a zero-touch experience
-    if bypass_consent {
-        match perform_verify(pamh, &user, true) {
-            VerifyResult::Success => return PamReturnCode::SUCCESS,
-            VerifyResult::RetryableFailure(reason) => {
-                unsafe { send_message(pamh, PAM_TEXT_INFO, &format!("   - ❌ [Bonjour] Scan failed: {}", reason)); }
-            },
-            VerifyResult::HardFailure(_) => { /* Fallback to loop */ }
+    // On first pass, use the service default for bypass_consent.
+    // This allows Zero-Touch if ask_permission=false in the daemon.
+    match perform_verify(pamh, &user, bypass_consent) {
+        VerifyResult::Success => return PamReturnCode::SUCCESS,
+        VerifyResult::ConsentRequired | VerifyResult::RetryableFailure(_) | VerifyResult::HardFailure(_) => {
+            // Proceed to the unified prompt loop
         }
     }
 
     for attempt in 1..=retry_limit {
-        let prompt_text = if attempt == 1 && !bypass_consent {
-            "[Bonjour] Type password or hit Enter for Face ID: ".to_string()
-        } else {
-            format!("[Bonjour] Attempt {}/{} failed. Type password or hit Enter to retry:", if bypass_consent { attempt } else { attempt - 1 }, retry_limit)
-        };
+        let prompt_text = format!("[Bonjour] Type password or hit Enter to (retry) scan [Attempt {}/{}]: ", attempt, retry_limit);
 
         if let Some(input) = unsafe { prompt_user(pamh, &prompt_text) } {
             let input = input.trim();
             if input.is_empty() {
-                // User hit Enter -> Action: Biometric Scan (Treat as immediate consent)
+                // User hit Enter -> Action: Force Biometric Scan (Treat as consent)
                 match perform_verify(pamh, &user, true) {
                     VerifyResult::Success => return PamReturnCode::SUCCESS,
                     VerifyResult::HardFailure(reason) => {
@@ -302,8 +297,10 @@ pub unsafe extern "C" fn pam_sm_authenticate(
                         return PamReturnCode::IGNORE;
                     },
                     VerifyResult::RetryableFailure(reason) => {
-                        // Just loop back for next attempt
                         unsafe { send_message(pamh, PAM_TEXT_INFO, &format!("   - ❌ Failed: {}", reason)); }
+                    },
+                    VerifyResult::ConsentRequired => {
+                        // Should not happen if bypass_consent is true
                     }
                 }
             } else {
@@ -317,7 +314,6 @@ pub unsafe extern "C" fn pam_sm_authenticate(
                 break;
             }
         } else {
-            // Prompt failed or cancelled
             break;
         }
     }
@@ -373,15 +369,7 @@ fn perform_verify(pamh: *mut PamHandle, user: &str, bypass_consent: bool) -> Ver
                         },
                         DaemonResponse::Info { msg } => {
                             if msg == "CONSENT_REQUIRED" {
-                                let prompt = "🔄 [Bonjour] Press Enter to confirm face unlock...";
-                                unsafe {
-                                    if prompt_user(pamh, prompt).is_some() {
-                                        // User consented (pressed enter), retry with bypass
-                                        return perform_verify(pamh, user, true);
-                                    } else {
-                                        return VerifyResult::RetryableFailure("Consent denied.".to_string());
-                                    }
-                                }
+                                return VerifyResult::ConsentRequired;
                             } else {
                                 unsafe { send_message(pamh, PAM_TEXT_INFO, &format!("ℹ️ [Bonjour] {}", msg)); }
                             }
